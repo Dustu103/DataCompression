@@ -90,6 +90,125 @@ const LZ77_PRESETS = {
   }
 };
 
+// Preset Texts for DEFLATE Compound Hybrid Architecture
+const DEFLATE_PRESETS = {
+  html: {
+    name: 'HTML Document (Web Assets)',
+    text: '<!DOCTYPE html><html><head><title>DEFLATE Test</title></head><body><div class="card"><div class="title">Hello World</div><div class="card"><div class="title">Nested Card</div></div></div></body></html>'
+  },
+  sentences: {
+    name: 'Repetitive Sentences',
+    text: 'THE CAR ON THE LEFT PASSED THE CAR ON THE RIGHT AND HIT THE CAR IN THE MIDDLE OF THE HIGHWAY'
+  },
+  overlap: {
+    name: 'Self-Referential Overlap',
+    text: 'ABRACADABRA_ABRACADABRA_ABRACADABRA_ABRACADABRA!'
+  },
+  rle: {
+    name: 'Run-Length Pattern (RLE)',
+    text: 'AAAAABBBBBCCCCCDDDDDEEEEEAAAAABBBBBCCCCCDDDDDEEEEEZZZZZZZZZZ'
+  }
+};
+
+// RFC 1951 Section 3.2.5: Literal/Length Codes (257–285) & Extra Bits Table
+const RFC1951_LENGTH_TABLE = [
+  { code: 257, minLen: 3, maxLen: 3, extraBits: 0 },
+  { code: 258, minLen: 4, maxLen: 4, extraBits: 0 },
+  { code: 259, minLen: 5, maxLen: 5, extraBits: 0 },
+  { code: 260, minLen: 6, maxLen: 6, extraBits: 0 },
+  { code: 261, minLen: 7, maxLen: 7, extraBits: 0 },
+  { code: 262, minLen: 8, maxLen: 8, extraBits: 0 },
+  { code: 263, minLen: 9, maxLen: 9, extraBits: 0 },
+  { code: 264, minLen: 10, maxLen: 10, extraBits: 0 },
+  { code: 265, minLen: 11, maxLen: 12, extraBits: 1 },
+  { code: 266, minLen: 13, maxLen: 14, extraBits: 1 },
+  { code: 267, minLen: 15, maxLen: 16, extraBits: 1 },
+  { code: 268, minLen: 17, maxLen: 18, extraBits: 1 },
+  { code: 269, minLen: 19, maxLen: 22, extraBits: 2 },
+  { code: 270, minLen: 23, maxLen: 26, extraBits: 2 },
+  { code: 271, minLen: 27, maxLen: 30, extraBits: 2 },
+  { code: 272, minLen: 31, maxLen: 34, extraBits: 2 },
+  { code: 273, minLen: 35, maxLen: 42, extraBits: 3 },
+  { code: 274, minLen: 43, maxLen: 50, extraBits: 3 },
+  { code: 275, minLen: 51, maxLen: 58, extraBits: 3 },
+  { code: 276, minLen: 59, maxLen: 66, extraBits: 3 },
+  { code: 277, minLen: 67, maxLen: 82, extraBits: 4 },
+  { code: 278, minLen: 83, maxLen: 98, extraBits: 4 },
+  { code: 279, minLen: 99, maxLen: 114, extraBits: 4 },
+  { code: 280, minLen: 115, maxLen: 130, extraBits: 4 },
+  { code: 281, minLen: 131, maxLen: 162, extraBits: 5 },
+  { code: 282, minLen: 163, maxLen: 194, extraBits: 5 },
+  { code: 283, minLen: 195, maxLen: 226, extraBits: 5 },
+  { code: 284, minLen: 227, maxLen: 257, extraBits: 5 },
+  { code: 285, minLen: 258, maxLen: 258, extraBits: 0 }
+];
+
+// RFC 1951 Section 3.2.5: Distance Codes (0–29) & Extra Bits Table
+const RFC1951_DISTANCE_TABLE = [
+  { code: 0, minDist: 1, maxDist: 1, extraBits: 0 },
+  { code: 1, minDist: 2, maxDist: 2, extraBits: 0 },
+  { code: 2, minDist: 3, maxDist: 3, extraBits: 0 },
+  { code: 3, minDist: 4, maxDist: 4, extraBits: 0 },
+  { code: 4, minDist: 5, maxDist: 6, extraBits: 1 },
+  { code: 5, minDist: 7, maxDist: 8, extraBits: 1 },
+  { code: 6, minDist: 9, maxDist: 12, extraBits: 2 },
+  { code: 7, minDist: 13, maxDist: 16, extraBits: 2 },
+  { code: 8, minDist: 17, maxDist: 24, extraBits: 3 },
+  { code: 9, minDist: 25, maxDist: 32, extraBits: 3 },
+  { code: 10, minDist: 33, maxDist: 48, extraBits: 4 },
+  { code: 11, minDist: 49, maxDist: 64, extraBits: 4 },
+  { code: 12, minDist: 65, maxDist: 96, extraBits: 5 },
+  { code: 13, minDist: 97, maxDist: 128, extraBits: 5 },
+  { code: 14, minDist: 129, maxDist: 192, extraBits: 6 },
+  { code: 15, minDist: 193, maxDist: 256, extraBits: 6 },
+  { code: 16, minDist: 257, maxDist: 384, extraBits: 7 },
+  { code: 17, minDist: 385, maxDist: 512, extraBits: 7 },
+  { code: 18, minDist: 513, maxDist: 768, extraBits: 8 },
+  { code: 19, minDist: 769, maxDist: 1024, extraBits: 8 },
+  { code: 20, minDist: 1025, maxDist: 1536, extraBits: 9 },
+  { code: 21, minDist: 1537, maxDist: 2048, extraBits: 9 },
+  { code: 22, minDist: 2049, maxDist: 3072, extraBits: 10 },
+  { code: 23, minDist: 3073, maxDist: 4096, extraBits: 10 },
+  { code: 24, minDist: 4097, maxDist: 6144, extraBits: 11 },
+  { code: 25, minDist: 6145, maxDist: 8192, extraBits: 11 },
+  { code: 26, minDist: 8193, maxDist: 12288, extraBits: 12 },
+  { code: 27, minDist: 12289, maxDist: 16384, extraBits: 12 },
+  { code: 28, minDist: 16385, maxDist: 24576, extraBits: 13 },
+  { code: 29, minDist: 24577, maxDist: 32768, extraBits: 13 }
+];
+
+const mapLengthToRfc1951 = (len) => {
+  const clampLen = Math.min(258, Math.max(3, len));
+  const entry = RFC1951_LENGTH_TABLE.find(e => clampLen >= e.minLen && clampLen <= e.maxLen) || RFC1951_LENGTH_TABLE[0];
+  const offset = clampLen - entry.minLen;
+  const extraBitsBin = entry.extraBits > 0 ? offset.toString(2).padStart(entry.extraBits, '0') : '';
+  return {
+    actualLength: clampLen,
+    code: entry.code,
+    rangeStr: entry.minLen === entry.maxLen ? `${entry.minLen}` : `${entry.minLen}–${entry.maxLen}`,
+    baseLen: entry.minLen,
+    offset,
+    extraBitsCount: entry.extraBits,
+    extraBitsBin
+  };
+};
+
+const mapDistanceToRfc1951 = (dist) => {
+  const clampDist = Math.min(32768, Math.max(1, dist));
+  const entry = RFC1951_DISTANCE_TABLE.find(e => clampDist >= e.minDist && clampDist <= e.maxDist) || RFC1951_DISTANCE_TABLE[0];
+  const offset = clampDist - entry.minDist;
+  const extraBitsBin = entry.extraBits > 0 ? offset.toString(2).padStart(entry.extraBits, '0') : '';
+  return {
+    actualDistance: clampDist,
+    code: entry.code,
+    rangeStr: entry.minDist === entry.maxDist ? `${entry.minDist}` : `${entry.minDist}–${entry.maxDist}`,
+    baseDist: entry.minDist,
+    offset,
+    extraBitsCount: entry.extraBits,
+    extraBitsBin
+  };
+};
+
 // Master Algorithm Registry
 const ALGORITHMS_CATALOG = [
   {
@@ -189,6 +308,20 @@ const ALGORITHMS_CATALOG = [
     flaws: ['Encoder match search is quadratic without hash chains', 'Limited by window size'],
     whenToUse: 'General-purpose text, code, structured files with repeated strings (ZIP, GZIP, PNG).',
     whenNotToUse: 'Pre-compressed, encrypted, or random binary files where sliding search yields zero matches.'
+  },
+  {
+    id: 'deflate',
+    name: 'DEFLATE (LZ77 + Canonical Huffman)',
+    category: 'lossless',
+    type: 'Compound Hybrid Architecture',
+    status: 'ready',
+    formula: 'Stream: LZ77 Tokens → Dual Canonical Huffman Trees',
+    ratio: '2.5:1 – 12:1',
+    desc: 'Created by Phil Katz in 1993 for PKZIP (RFC 1951). The most widely deployed compression format in human history (ZIP, GZIP, PNG, HTTP/1.1, Git zlib). Combines LZ77 pattern deduplication with dual Canonical Huffman entropy coding.',
+    pros: ['Eliminates the LZ77 triplet expansion penalty completely', 'Unsurpassed universal compatibility across all operating systems', 'Zero patent royalties'],
+    flaws: ['Two-stage processing latency', 'Beaten in compression speed and density by modern Zstandard (Zstd)'],
+    whenToUse: 'Universal cross-platform interchange (ZIP, GZIP, PNG, PDF flate, Git packfiles, HTTP web assets).',
+    whenNotToUse: 'Ultra-high-throughput in-memory caching requiring gigabytes-per-second memory bandwidth (use LZ4 or Zstd).'
   },
   {
     id: 'lz78-lzw',
@@ -312,6 +445,23 @@ export default function App() {
   const [lzVoiceEnabled, setLzVoiceEnabled] = useState(true);
   const lzIsAutoBuildingRef = useRef(false);
   const lzSpeechTimeoutRef = useRef(null);
+
+  // ----------------------------------------------------
+  // DEFLATE COMPOUND HYBRID ARCHITECTURE STATE
+  // ----------------------------------------------------
+  const [deflatePresetKey, setDeflatePresetKey] = useState('html');
+  const [deflateInput, setDeflateInput] = useState(DEFLATE_PRESETS.html.text);
+  const [deflateWindowSize, setDeflateWindowSize] = useState(64);
+  const [deflateStepIdx, setDeflateStepIdx] = useState(0);
+  const [deflateAnimPhase, setDeflateAnimPhase] = useState('pipeline'); // 'pipeline' | 'exploder' | 'trees' | 'matrix'
+  const [deflateIsAutoBuilding, setDeflateIsAutoBuilding] = useState(false);
+  const [deflateVoiceEnabled, setDeflateVoiceEnabled] = useState(true);
+  const deflateIsAutoBuildingRef = useRef(false);
+  const deflateSpeechTimeoutRef = useRef(null);
+
+  // Phase 2: Length & Distance Symbol & Extra-Bits Exploder Lab State
+  const [exploderLength, setExploderLength] = useState(9);
+  const [exploderDistance, setExploderDistance] = useState(35);
 
   // Hovered byte info for interactive matrix inspection
   const [hoveredByteInfo, setHoveredByteInfo] = useState(null);
@@ -804,6 +954,352 @@ export default function App() {
     }
   };
 
+  // ----------------------------------------------------
+  // DEFLATE COMPOUND PIPELINE ENGINE & MATHEMATICAL REDUCTION AUDITOR
+  // ----------------------------------------------------
+  const deflateData = useMemo(() => {
+    if (!deflateInput || deflateInput.length === 0) {
+      return {
+        steps: [],
+        tokens: [],
+        litLengths: {},
+        litCodes: {},
+        distLengths: {},
+        distCodes: {},
+        stats: null
+      };
+    }
+
+    const str = deflateInput;
+    const size = str.length;
+    let cursor = 0;
+    const rawTokens = [];
+
+    // Stage 1: LZ77 Sliding Window Matcher
+    while (cursor < size) {
+      const searchStart = Math.max(0, cursor - deflateWindowSize);
+      const maxLookahead = Math.min(258, size - cursor);
+
+      let bestDist = 0;
+      let bestLen = 0;
+
+      if (maxLookahead >= 3) {
+        for (let pos = searchStart; pos < cursor; ++pos) {
+          let len = 0;
+          while (len < maxLookahead && str[pos + len] === str[cursor + len]) {
+            len++;
+          }
+          if (len > bestLen) {
+            bestLen = len;
+            bestDist = cursor - pos;
+            if (bestLen === 258) break;
+          }
+        }
+      }
+
+      if (bestLen >= 3) {
+        rawTokens.push({
+          isMatch: true,
+          cursor,
+          searchStart,
+          searchEnd: cursor - 1,
+          length: bestLen,
+          distance: bestDist,
+          matchedText: str.substring(cursor, cursor + bestLen),
+          matchPos: cursor - bestDist
+        });
+        cursor += bestLen;
+      } else {
+        rawTokens.push({
+          isMatch: false,
+          cursor,
+          char: str[cursor],
+          symbol: str.charCodeAt(cursor)
+        });
+        cursor += 1;
+      }
+    }
+
+    // Append End-Of-Block (EOB = 256)
+    rawTokens.push({
+      isMatch: false,
+      cursor: size,
+      char: 'EOB',
+      symbol: 256,
+      isEob: true
+    });
+
+    // Stage 2: Tally Symbol Frequencies for Dual Huffman Trees
+    const litLenFreq = {};
+    const distFreq = {};
+
+    let matchesCount = 0;
+    let literalsCount = 0;
+    let bytesDeduplicated = 0;
+
+    for (const tok of rawTokens) {
+      if (!tok.isMatch) {
+        litLenFreq[tok.symbol] = (litLenFreq[tok.symbol] || 0) + 1;
+        if (!tok.isEob) literalsCount++;
+      } else {
+        const lenMap = mapLengthToRfc1951(tok.length);
+        const distMap = mapDistanceToRfc1951(tok.distance);
+        litLenFreq[lenMap.code] = (litLenFreq[lenMap.code] || 0) + 1;
+        distFreq[distMap.code] = (distFreq[distMap.code] || 0) + 1;
+        matchesCount++;
+        bytesDeduplicated += tok.length;
+      }
+    }
+
+    // Helper: Build Canonical Huffman Codes from Frequency Map
+    function buildCanonicalCodebook(freqMap) {
+      const lengths = {};
+      const codes = {};
+      const entries = Object.entries(freqMap).map(([sym, count]) => ({ sym: Number(sym), weight: Number(count) }));
+      if (entries.length === 0) return { lengths, codes };
+      if (entries.length === 1) {
+        lengths[entries[0].sym] = 1;
+        codes[entries[0].sym] = '0';
+        return { lengths, codes };
+      }
+
+      let pq = entries.map(e => ({ sym: e.sym, weight: e.weight, left: null, right: null }));
+      pq.sort((a, b) => a.weight - b.weight || a.sym - b.sym);
+
+      while (pq.length > 1) {
+        pq.sort((a, b) => a.weight - b.weight || (a.sym !== null && b.sym !== null ? a.sym - b.sym : 0));
+        const left = pq[0];
+        const right = pq[1];
+        const parent = { sym: null, weight: left.weight + right.weight, left, right };
+        pq = [parent, ...pq.slice(2)];
+      }
+
+      const root = pq[0];
+      function getDepths(node, depth = 0) {
+        if (!node) return;
+        if (node.sym !== null) {
+          lengths[node.sym] = depth === 0 ? 1 : depth;
+          return;
+        }
+        getDepths(node.left, depth + 1);
+        getDepths(node.right, depth + 1);
+      }
+      getDepths(root, 0);
+
+      const groups = {};
+      for (const s in lengths) {
+        const l = lengths[s];
+        if (!groups[l]) groups[l] = [];
+        groups[l].push(Number(s));
+      }
+
+      let code = 0;
+      for (let l = 1; l <= 32; ++l) {
+        if (groups[l]) {
+          groups[l].sort((a, b) => a - b);
+          for (const s of groups[l]) {
+            codes[s] = code.toString(2).padStart(l, '0');
+            code++;
+          }
+        }
+        code <<= 1;
+      }
+      return { lengths, codes };
+    }
+
+    const litCb = buildCanonicalCodebook(litLenFreq);
+    const distCb = buildCanonicalCodebook(distFreq);
+
+    // Build Step-by-Step Visualization Array with Exact Arithmetic
+    const steps = [];
+    let reconstructed = '';
+    let cumulativeTokens = [];
+    let runningPayloadBits = 0;
+
+    for (let i = 0; i < rawTokens.length; ++i) {
+      const tok = rawTokens[i];
+      let rawBitsThisStep = 0;
+      let deflateBitsThisStep = 0;
+      let narrative = '';
+      let voiceScript = '';
+      let lenMap = null;
+      let distMap = null;
+      let lenHuffCode = '';
+      let distHuffCode = '';
+      let litHuffCode = '';
+
+      if (tok.isEob) {
+        rawBitsThisStep = 0;
+        litHuffCode = litCb.codes[256] || '0';
+        deflateBitsThisStep = litHuffCode.length;
+        narrative = `Block Complete! Emitted RFC 1951 End-Of-Block marker (Symbol 256) encoded as Canonical Huffman bitstring '${litHuffCode}' (${deflateBitsThisStep} bits).`;
+        voiceScript = `Compression block complete. Emitted End of Block symbol two hundred fifty six with Huffman code ${litHuffCode}.`;
+      } else if (tok.isMatch) {
+        lenMap = mapLengthToRfc1951(tok.length);
+        distMap = mapDistanceToRfc1951(tok.distance);
+
+        lenHuffCode = litCb.codes[lenMap.code] || '0';
+        distHuffCode = distCb.codes[distMap.code] || '0';
+
+        rawBitsThisStep = tok.length * 8;
+        deflateBitsThisStep = lenHuffCode.length + lenMap.extraBitsCount + distHuffCode.length + distMap.extraBitsCount;
+
+        const copyStart = reconstructed.length - tok.distance;
+        for (let k = 0; k < tok.length; ++k) {
+          reconstructed += reconstructed[copyStart + k];
+        }
+
+        const deltaBits = rawBitsThisStep - deflateBitsThisStep;
+        const deltaPct = Math.round((deltaBits / rawBitsThisStep) * 100);
+
+        narrative = `Found ${tok.length}-byte match "${tok.matchedText}" at backward distance ${tok.distance}! RFC 1951 maps Length ${tok.length} → Symbol ${lenMap.code} (${lenHuffCode}, ${lenHuffCode.length}b) + ${lenMap.extraBitsCount} extra bit '${lenMap.extraBitsBin}', and Distance ${tok.distance} → Symbol ${distMap.code} (${distHuffCode}, ${distHuffCode.length}b) + ${distMap.extraBitsCount} extra bits '${distMap.extraBitsBin}'. Arithmetic: ${rawBitsThisStep} raw bits → ${deflateBitsThisStep} DEFLATE bits (Saved ${deltaBits} bits, -${deltaPct}%).`;
+        voiceScript = `Found matching phrase "${tok.matchedText}" of length ${tok.length} at backward distance ${tok.distance}. In DEFLATE, length ${tok.length} maps to Length Symbol ${lenMap.code} with ${lenMap.extraBitsCount} extra bits, and distance ${tok.distance} maps to Distance Symbol ${distMap.code} with ${distMap.extraBitsCount} extra bits. This reduces ${rawBitsThisStep} raw bits down to ${deflateBitsThisStep} compressed bits, saving ${deltaBits} bits.`;
+      } else {
+        const chDisplay = tok.char === ' ' ? '␣ (space)' : `'${tok.char}'`;
+        const chSpoken = tok.char === ' ' ? 'space' : tok.char;
+        litHuffCode = litCb.codes[tok.symbol] || '0';
+
+        rawBitsThisStep = 8;
+        deflateBitsThisStep = litHuffCode.length;
+        reconstructed += tok.char;
+
+        const deltaBits = rawBitsThisStep - deflateBitsThisStep;
+        const deltaPct = Math.round((deltaBits / rawBitsThisStep) * 100);
+
+        narrative = `No match ≥ 3 in window for ${chDisplay}. Emitted Literal Symbol ${tok.symbol} (ASCII '${tok.char}') coded as Canonical Huffman bitstring '${litHuffCode}' (${deflateBitsThisStep} bits vs 8 raw bits, saving ${deltaBits} bits, -${deltaPct}%). Notice DEFLATE does NOT suffer from the 28-bit raw LZ77 triplet expansion penalty!`;
+        voiceScript = `At cursor ${tok.cursor}, no phrase match exists. Emitting literal ${chSpoken}. Canonical Huffman encodes it in ${deflateBitsThisStep} bits instead of eight raw bits.`;
+      }
+
+      runningPayloadBits += deflateBitsThisStep;
+      cumulativeTokens = [...cumulativeTokens, tok];
+
+      steps.push({
+        stepIdx: i,
+        tok,
+        isMatch: tok.isMatch,
+        isEob: tok.isEob,
+        cursor: tok.cursor,
+        matchedText: tok.matchedText,
+        bestLength: tok.length || 0,
+        bestDistance: tok.distance || 0,
+        char: tok.char,
+        symbol: tok.symbol,
+        lenMap,
+        distMap,
+        lenHuffCode,
+        distHuffCode,
+        litHuffCode,
+        rawBitsThisStep,
+        deflateBitsThisStep,
+        deltaBitsThisStep: rawBitsThisStep - deflateBitsThisStep,
+        deltaPercentThisStep: rawBitsThisStep > 0 ? Math.round(((rawBitsThisStep - deflateBitsThisStep) / rawBitsThisStep) * 100) : 0,
+        runningPayloadBits,
+        reconstructedSoFar: reconstructed,
+        tokensSoFar: cumulativeTokens,
+        narrative,
+        voiceScript
+      });
+    }
+
+    // Full Document Mathematical Statistics
+    const rawBytes = size;
+    const rawBits = size * 8;
+    const headerBits = 96; // 12-byte container header
+    const litTreeBits = Object.keys(litCb.lengths).length * 8;
+    const distTreeBits = Object.keys(distCb.lengths).length * 8;
+    const totalCompressedBits = headerBits + litTreeBits + distTreeBits + runningPayloadBits;
+    const totalCompressedBytes = Math.ceil(totalCompressedBits / 8);
+    const spaceSavingsPercent = Math.max(0, Math.round(((rawBits - totalCompressedBits) / rawBits) * 100));
+    const compressionRatio = (rawBytes / Math.max(1, totalCompressedBytes)).toFixed(2);
+
+    // Raw LZ77 Comparison (28-bit fixed triplets)
+    const rawLzTokenCount = rawTokens.length - 1; // minus EOB
+    const rawLzBits = rawLzTokenCount * 28 + 96;
+    const rawLzBytes = Math.ceil(rawLzBits / 8);
+
+    // Pure Huffman Comparison
+    let pureHuffPayloadBits = 0;
+    const pureCharFreq = {};
+    for (const c of str) pureCharFreq[c.charCodeAt(0)] = (pureCharFreq[c.charCodeAt(0)] || 0) + 1;
+    const pureHuffCb = buildCanonicalCodebook(pureCharFreq);
+    for (const c of str) pureHuffPayloadBits += (pureHuffCb.codes[c.charCodeAt(0)] || '0').length;
+    const pureHuffBytes = Math.ceil((96 + Object.keys(pureHuffCb.lengths).length * 8 + pureHuffPayloadBits) / 8);
+
+    const stats = {
+      rawBytes,
+      rawBits,
+      matchesCount,
+      literalsCount,
+      bytesDeduplicated,
+      headerBits,
+      litTreeBits,
+      distTreeBits,
+      runningPayloadBits,
+      totalCompressedBits,
+      totalCompressedBytes,
+      spaceSavingsPercent,
+      compressionRatio,
+      rawLzBytes,
+      rawLzBits,
+      pureHuffBytes,
+      pureHuffPayloadBits
+    };
+
+    return {
+      steps,
+      tokens: rawTokens,
+      litLengths: litCb.lengths,
+      litCodes: litCb.codes,
+      distLengths: distCb.lengths,
+      distCodes: distCb.codes,
+      stats
+    };
+  }, [deflateInput, deflateWindowSize]);
+
+  // Synchronized DEFLATE Voice & Step Navigation
+  const handleDeflateStepChange = (newIdx) => {
+    if (!deflateData.steps || newIdx < 0 || newIdx >= deflateData.steps.length) return;
+    setDeflateStepIdx(newIdx);
+    if (deflateVoiceEnabled && deflateData.steps[newIdx]) {
+      speakWithCallback(deflateData.steps[newIdx].voiceScript, () => {
+        if (deflateIsAutoBuildingRef.current) {
+          if (newIdx < deflateData.steps.length - 1) {
+            handleDeflateStepChange(newIdx + 1);
+          } else {
+            setDeflateIsAutoBuilding(false);
+            deflateIsAutoBuildingRef.current = false;
+          }
+        }
+      });
+    }
+  };
+
+  const handleToggleDeflateAutoBuild = () => {
+    if (deflateIsAutoBuilding) {
+      setDeflateIsAutoBuilding(false);
+      deflateIsAutoBuildingRef.current = false;
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      if (deflateSpeechTimeoutRef.current) clearTimeout(deflateSpeechTimeoutRef.current);
+    } else {
+      setDeflateIsAutoBuilding(true);
+      deflateIsAutoBuildingRef.current = true;
+      const startIdx = deflateStepIdx >= deflateData.steps.length - 1 ? 0 : deflateStepIdx;
+      setDeflateStepIdx(startIdx);
+      if (deflateData.steps[startIdx]) {
+        speakWithCallback(deflateData.steps[startIdx].voiceScript, () => {
+          if (deflateIsAutoBuildingRef.current) {
+            if (startIdx < deflateData.steps.length - 1) {
+              handleDeflateStepChange(startIdx + 1);
+            } else {
+              setDeflateIsAutoBuilding(false);
+              deflateIsAutoBuildingRef.current = false;
+            }
+          }
+        });
+      }
+    }
+  };
+
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
@@ -1228,12 +1724,12 @@ export default function App() {
               <button 
                 className={`filter-btn ${filterCategory === 'all' ? 'active' : ''}`}
                 onClick={() => setFilterCategory('all')}>
-                All (12)
+                All (13)
               </button>
               <button 
                 className={`filter-btn ${filterCategory === 'lossless' ? 'active' : ''}`}
                 onClick={() => setFilterCategory('lossless')}>
-                Lossless (9)
+                Lossless (10)
               </button>
               <button 
                 className={`filter-btn ${filterCategory === 'lossy' ? 'active' : ''}`}
@@ -3347,6 +3843,988 @@ export default function App() {
                     </div>
                   </li>
                 </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          VIEW 4: DEDICATED DEFLATE COMPOUND STUDIO (LZ77 + DUAL CANONICAL HUFFMAN)
+          ========================================================================= */}
+      {currentView === 'deflate' && (
+        <div className="studio-container">
+          <div className="studio-header">
+            <div>
+              <span className="section-heading-badge lossless">
+                ALGORITHM #8: COMPOUND HYBRID ARCHITECTURE (RFC 1951)
+              </span>
+              <h2 className="matrix-hero-title" style={{ marginTop: '8px', fontSize: '2rem' }}>
+                DEFLATE: <span>LZ77 Deduplication + Dual Canonical Huffman Coding</span>
+              </h2>
+            </div>
+            <div className="cxx-badge">
+              <span className="cxx-icon">C++17</span>
+              <span>lossless/deflate/deflate.hpp</span>
+            </div>
+          </div>
+
+          <div className="tree-animator-card">
+            {/* Phase Navigation Tabs */}
+            <div className="anim-phase-nav">
+              <button 
+                className={`phase-tab-btn ${deflateAnimPhase === 'pipeline' ? 'active' : ''}`}
+                onClick={() => setDeflateAnimPhase('pipeline')}>
+                <Sparkles size={16} /> Phase 1: Compound Pipeline Animator (LZ77 → Huffman)
+              </button>
+              <button 
+                className={`phase-tab-btn ${deflateAnimPhase === 'exploder' ? 'active' : ''}`}
+                onClick={() => setDeflateAnimPhase('exploder')}>
+                <Layers size={16} /> Phase 2: Length & Distance Symbol & Extra-Bits Exploder
+              </button>
+              <button 
+                className={`phase-tab-btn ${deflateAnimPhase === 'trees' ? 'active' : ''}`}
+                onClick={() => setDeflateAnimPhase('trees')}>
+                <Network size={16} /> Phase 3: Dual Canonical Huffman Trees
+              </button>
+              <button 
+                className={`phase-tab-btn ${deflateAnimPhase === 'matrix' ? 'active' : ''}`}
+                onClick={() => setDeflateAnimPhase('matrix')}>
+                <FileCode size={16} /> Phase 4: Real Document Data Matrix & Bitstream Audit
+              </button>
+            </div>
+
+            {/* Presets & Parameters Bar */}
+            <div className="anim-controls-bar" style={{ flexWrap: 'wrap', gap: '14px', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>Presets:</span>
+                {Object.entries(DEFLATE_PRESETS).map(([key, item]) => (
+                  <button
+                    key={key}
+                    className={`chip-btn ${deflatePresetKey === key ? 'active' : ''}`}
+                    style={deflatePresetKey === key ? { background: 'rgba(0, 242, 254, 0.2)', borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)' } : {}}
+                    onClick={() => {
+                      setDeflatePresetKey(key);
+                      setDeflateInput(item.text);
+                      setDeflateStepIdx(0);
+                      setDeflateIsAutoBuilding(false);
+                      deflateIsAutoBuildingRef.current = false;
+                      if (window.speechSynthesis) window.speechSynthesis.cancel();
+                    }}>
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  <span>Sliding Window:</span>
+                  <select 
+                    value={deflateWindowSize} 
+                    onChange={e => { setDeflateWindowSize(Number(e.target.value)); setDeflateStepIdx(0); }}
+                    style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', border: '1px solid var(--border-subtle)', borderRadius: '4px', padding: '4px 8px', fontSize: '0.8rem' }}>
+                    <option value={32}>32 Bytes (Pedagogical)</option>
+                    <option value={64}>64 Bytes (Compact)</option>
+                    <option value={128}>128 Bytes (Standard)</option>
+                    <option value={256}>256 Bytes (Deep)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Custom Input Bar */}
+            <div style={{ margin: '14px 0' }}>
+              <input
+                type="text"
+                value={deflateInput}
+                onChange={e => {
+                  setDeflateInput(e.target.value);
+                  setDeflatePresetKey('custom');
+                  setDeflateStepIdx(0);
+                  setDeflateIsAutoBuilding(false);
+                  deflateIsAutoBuildingRef.current = false;
+                  if (window.speechSynthesis) window.speechSynthesis.cancel();
+                }}
+                placeholder="Type or paste custom text to watch DEFLATE tokenize and Huffman-code live..."
+                style={{ width: '100%', padding: '10px 14px', background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', color: '#fff', fontSize: '0.88rem', fontFamily: 'monospace' }}
+              />
+            </div>
+
+            {/* -----------------------------------------------------------------
+                PHASE 1: COMPOUND PIPELINE ANIMATOR
+                ----------------------------------------------------------------- */}
+            {deflateAnimPhase === 'pipeline' && (
+              <div>
+                {/* Audio Narrator Bar */}
+                <div className="narrator-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 18px', background: 'rgba(0, 242, 254, 0.05)', border: '1px solid rgba(0, 242, 254, 0.2)', borderRadius: 'var(--radius-sm)', marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(0, 242, 254, 0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-cyan)' }}>
+                      <Sparkles size={18} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--accent-cyan)', fontWeight: 700 }}>
+                        Step-by-Step Voice & Pipeline Narrator (Step {deflateStepIdx + 1} of {Math.max(1, deflateData.steps.length)})
+                      </div>
+                      <div style={{ fontSize: '0.88rem', color: 'var(--text-primary)', marginTop: '2px', maxWidth: '850px' }}>
+                        {deflateData.steps[deflateStepIdx]?.narrative || "Loading pipeline..."}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <button 
+                      className="nav-step-btn"
+                      onClick={() => handleDeflateStepChange(deflateStepIdx - 1)}
+                      disabled={deflateStepIdx === 0}
+                      title="Step Backward">
+                      <StepBack size={16} />
+                    </button>
+                    <button 
+                      className="nav-step-btn play-btn"
+                      onClick={handleToggleDeflateAutoBuild}
+                      style={{ background: deflateIsAutoBuilding ? 'rgba(255, 71, 87, 0.2)' : 'rgba(0, 242, 254, 0.2)', borderColor: deflateIsAutoBuilding ? 'var(--accent-rose)' : 'var(--accent-cyan)', color: deflateIsAutoBuilding ? 'var(--accent-rose)' : 'var(--accent-cyan)' }}
+                      title={deflateIsAutoBuilding ? "Pause Audio Auto-Advancement" : "Play Synchronized Audio Auto-Advancement"}>
+                      {deflateIsAutoBuilding ? <Pause size={16} /> : <Play size={16} />}
+                    </button>
+                    <button 
+                      className="nav-step-btn"
+                      onClick={() => handleDeflateStepChange(deflateStepIdx + 1)}
+                      disabled={deflateStepIdx >= deflateData.steps.length - 1}
+                      title="Step Forward">
+                      <StepForward size={16} />
+                    </button>
+                    <button 
+                      className="nav-step-btn"
+                      onClick={() => handleDeflateStepChange(0)}
+                      title="Reset to Start">
+                      <RotateCcw size={16} />
+                    </button>
+                    <button 
+                      className="nav-step-btn"
+                      onClick={() => {
+                        setDeflateVoiceEnabled(!deflateVoiceEnabled);
+                        if (window.speechSynthesis) window.speechSynthesis.cancel();
+                      }}
+                      title={deflateVoiceEnabled ? "Mute Voice Narration" : "Unmute Voice Narration"}
+                      style={deflateVoiceEnabled ? { color: 'var(--accent-emerald)' } : { color: 'var(--text-muted)' }}>
+                      {deflateVoiceEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Sliding Window Visualization Tape */}
+                <div style={{ background: 'rgba(0,0,0,0.5)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '16px', marginBottom: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <div style={{ display: 'flex', gap: '14px', fontSize: '0.78rem' }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{ width: '10px', height: '10px', background: 'rgba(0, 242, 254, 0.3)', border: '1px solid var(--accent-cyan)', borderRadius: '2px' }}></span>
+                        Search Buffer (History Window)
+                      </span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{ width: '10px', height: '10px', background: 'rgba(255, 170, 0, 0.4)', border: '1px solid var(--accent-amber)', borderRadius: '2px' }}></span>
+                        Active Match / Cursor Lookahead
+                      </span>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{ width: '10px', height: '10px', background: 'rgba(255, 255, 255, 0.1)', border: '1px solid var(--border-subtle)', borderRadius: '2px' }}></span>
+                        Unprocessed Stream
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                      Cursor Position: <strong style={{ color: '#fff' }}>{deflateData.steps[deflateStepIdx]?.cursor ?? 0}</strong> / {deflateInput.length}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', padding: '10px', background: '#070b14', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.05)', minHeight: '60px' }}>
+                    {deflateInput.split('').map((ch, idx) => {
+                      const curStep = deflateData.steps[deflateStepIdx];
+                      const cursor = curStep?.cursor ?? 0;
+                      const isMatch = curStep?.isMatch ?? false;
+                      const matchLen = curStep?.bestLength ?? 0;
+                      const searchStart = Math.max(0, cursor - deflateWindowSize);
+
+                      let bg = 'rgba(255, 255, 255, 0.03)';
+                      let border = '1px solid rgba(255, 255, 255, 0.08)';
+                      let color = 'var(--text-muted)';
+                      let isCursor = (idx === cursor);
+
+                      if (idx >= searchStart && idx < cursor) {
+                        bg = 'rgba(0, 242, 254, 0.12)';
+                        border = '1px solid rgba(0, 242, 254, 0.4)';
+                        color = 'var(--accent-cyan)';
+                      } else if (isMatch && idx >= cursor && idx < cursor + matchLen) {
+                        bg = 'rgba(255, 170, 0, 0.25)';
+                        border = '1px solid var(--accent-amber)';
+                        color = '#fff';
+                      } else if (!isMatch && idx === cursor) {
+                        bg = 'rgba(16, 185, 129, 0.25)';
+                        border = '1px solid var(--accent-emerald)';
+                        color = '#fff';
+                      }
+
+                      return (
+                        <div
+                          key={idx}
+                          style={{
+                            minWidth: '24px',
+                            height: '32px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: bg,
+                            border: border,
+                            borderRadius: '3px',
+                            color: color,
+                            fontFamily: 'monospace',
+                            fontSize: '0.85rem',
+                            fontWeight: isCursor || (isMatch && idx >= cursor && idx < cursor + matchLen) ? 700 : 400,
+                            position: 'relative'
+                          }}>
+                          {ch === ' ' ? '␣' : ch}
+                          <span style={{ fontSize: '0.55rem', opacity: 0.5 }}>{idx}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Current Token Inspection & Reduction Arithmetic Card */}
+                {deflateData.steps[deflateStepIdx] && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '16px', marginBottom: '20px' }}>
+                    {/* Token Anatomy Box */}
+                    <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                      <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: '8px' }}>
+                        Stage 1: LZ77 Intermediate Token
+                      </div>
+                      {deflateData.steps[deflateStepIdx].isEob ? (
+                        <div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--accent-purple)' }}>
+                            End-Of-Block Marker (EOB)
+                          </div>
+                          <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Designates block termination. Mapped to Literal/Length tree symbol <strong>256</strong>.
+                          </p>
+                        </div>
+                      ) : deflateData.steps[deflateStepIdx].isMatch ? (
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className="status-chip ready" style={{ fontSize: '0.72rem' }}>PHRASE MATCH</span>
+                            <span style={{ fontFamily: 'monospace', fontSize: '1rem', color: 'var(--accent-amber)', fontWeight: 700 }}>
+                              "{deflateData.steps[deflateStepIdx].matchedText}"
+                            </span>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginTop: '12px' }}>
+                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '8px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Match Length</div>
+                              <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--accent-cyan)' }}>
+                                {deflateData.steps[deflateStepIdx].bestLength} Bytes
+                              </div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                RFC 1951 Symbol: <strong>{deflateData.steps[deflateStepIdx].lenMap?.code}</strong>
+                              </div>
+                            </div>
+                            <div style={{ background: 'rgba(255,255,255,0.03)', padding: '8px 12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Backward Distance</div>
+                              <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--accent-emerald)' }}>
+                                {deflateData.steps[deflateStepIdx].bestDistance} Bytes
+                              </div>
+                              <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                RFC 1951 Symbol: <strong>{deflateData.steps[deflateStepIdx].distMap?.code}</strong>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className="status-chip ready" style={{ fontSize: '0.72rem', background: 'rgba(16, 185, 129, 0.2)', color: 'var(--accent-emerald)' }}>LITERAL BYTE</span>
+                            <span style={{ fontFamily: 'monospace', fontSize: '1.2rem', color: '#fff', fontWeight: 700 }}>
+                              '{deflateData.steps[deflateStepIdx].char === ' ' ? '␣ (space)' : deflateData.steps[deflateStepIdx].char}'
+                            </span>
+                            <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                              (ASCII {deflateData.steps[deflateStepIdx].symbol})
+                            </span>
+                          </div>
+                          <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                            No prior match ≥ 3 found in search buffer. Coded directly into the Literal/Length tree as symbol {deflateData.steps[deflateStepIdx].symbol}.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Stage 2 Huffman Coding & Extra Bits Box */}
+                    <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                      <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: '8px' }}>
+                        Stage 2: Canonical Huffman + Extra Bits
+                      </div>
+                      {deflateData.steps[deflateStepIdx].isMatch ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.82rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'rgba(0, 242, 254, 0.05)', borderRadius: '4px' }}>
+                            <span>Length Symbol {deflateData.steps[deflateStepIdx].lenMap?.code}:</span>
+                            <code>{deflateData.steps[deflateStepIdx].lenHuffCode} ({deflateData.steps[deflateStepIdx].lenHuffCode.length} bits)</code>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'rgba(0, 242, 254, 0.05)', borderRadius: '4px' }}>
+                            <span>Length Extra Bits ({deflateData.steps[deflateStepIdx].lenMap?.extraBitsCount}b):</span>
+                            <code>{deflateData.steps[deflateStepIdx].lenMap?.extraBitsCount > 0 ? deflateData.steps[deflateStepIdx].lenMap?.extraBitsBin : '(none)'}</code>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '4px' }}>
+                            <span>Distance Symbol {deflateData.steps[deflateStepIdx].distMap?.code}:</span>
+                            <code>{deflateData.steps[deflateStepIdx].distHuffCode} ({deflateData.steps[deflateStepIdx].distHuffCode.length} bits)</code>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'rgba(16, 185, 129, 0.05)', borderRadius: '4px' }}>
+                            <span>Distance Extra Bits ({deflateData.steps[deflateStepIdx].distMap?.extraBitsCount}b):</span>
+                            <code>{deflateData.steps[deflateStepIdx].distMap?.extraBitsCount > 0 ? deflateData.steps[deflateStepIdx].distMap?.extraBitsBin : '(none)'}</code>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ padding: '10px', background: 'rgba(255,255,255,0.03)', borderRadius: '4px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem' }}>
+                            <span>Canonical Huffman Bitstring:</span>
+                            <code style={{ color: 'var(--accent-emerald)', fontWeight: 700 }}>
+                              {deflateData.steps[deflateStepIdx].litHuffCode}
+                            </code>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                            <span>Transmitted Length:</span>
+                            <span>{deflateData.steps[deflateStepIdx].litHuffCode.length} bits (vs 8 raw bits)</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Step Mathematical Size Reduction Calculation */}
+                    <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                      <div style={{ fontSize: '0.78rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', fontWeight: 700, marginBottom: '8px' }}>
+                        Step Size Reduction Arithmetic (Before vs After)
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px', background: 'rgba(255, 71, 87, 0.08)', borderRadius: '4px', marginBottom: '6px' }}>
+                        <span style={{ fontSize: '0.82rem', color: 'var(--accent-rose)' }}>Before (Raw Bytes):</span>
+                        <strong style={{ fontFamily: 'monospace' }}>{deflateData.steps[deflateStepIdx].rawBitsThisStep} bits</strong>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '4px', marginBottom: '6px' }}>
+                        <span style={{ fontSize: '0.82rem', color: 'var(--accent-emerald)' }}>After (DEFLATE Bits):</span>
+                        <strong style={{ fontFamily: 'monospace' }}>{deflateData.steps[deflateStepIdx].deflateBitsThisStep} bits</strong>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px', background: 'rgba(0, 242, 254, 0.08)', borderRadius: '4px' }}>
+                        <span style={{ fontSize: '0.82rem', color: 'var(--accent-cyan)' }}>Net Savings on Step:</span>
+                        <strong style={{ fontFamily: 'monospace', color: deflateData.steps[deflateStepIdx].deltaBitsThisStep >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                          {deflateData.steps[deflateStepIdx].deltaBitsThisStep >= 0 ? `-${deflateData.steps[deflateStepIdx].deltaBitsThisStep} bits (${deflateData.steps[deflateStepIdx].deltaPercentThisStep}%)` : `+${Math.abs(deflateData.steps[deflateStepIdx].deltaBitsThisStep)} bits`}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Decompressor Live Reconstruction Tape */}
+                <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '14px 18px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.84rem', fontWeight: 600 }}>
+                      <CheckCircle2 size={16} color="var(--accent-emerald)" />
+                      <span>Decompressor Output Reconstruction Buffer:</span>
+                    </div>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--accent-emerald)' }}>
+                      Reconstructed {deflateData.steps[deflateStepIdx]?.reconstructedSoFar?.length ?? 0} / {deflateInput.length} bytes (100% Lossless Roundtrip)
+                    </span>
+                  </div>
+                  <div style={{ padding: '10px 14px', background: '#050810', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)', fontFamily: 'monospace', fontSize: '0.88rem', color: 'var(--accent-emerald)', wordBreak: 'break-all', minHeight: '42px' }}>
+                    {deflateData.steps[deflateStepIdx]?.reconstructedSoFar || '(empty buffer)'}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* -----------------------------------------------------------------
+                PHASE 2: LENGTH & DISTANCE SYMBOL & EXTRA-BITS EXPLODER (USER'S CORE CONCEPT)
+                ----------------------------------------------------------------- */}
+            {deflateAnimPhase === 'exploder' && (
+              <div>
+                {/* Educational Banner Explaining the Distinction */}
+                <div style={{ background: 'linear-gradient(135deg, rgba(0, 242, 254, 0.1) 0%, rgba(138, 43, 226, 0.1) 100%)', border: '1px solid rgba(0, 242, 254, 0.3)', borderRadius: 'var(--radius-sm)', padding: '18px 22px', marginBottom: '24px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <Layers size={22} color="var(--accent-cyan)" />
+                    <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#fff' }}>
+                      Understanding Length & Distance Symbols vs Extra Bits (RFC 1951)
+                    </h3>
+                  </div>
+                  <p style={{ margin: '8px 0 0', fontSize: '0.92rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    A length symbol is <strong>NOT the binary representation of the length itself</strong>. It is a <strong>compact category ID</strong> assigned to a bracket range of possible lengths. <strong>Extra bits</strong> then specify the exact offset inside that bracket. Finally, that category ID is encoded with a variable-length Canonical Huffman code, while the extra bits are appended verbatim as raw binary!
+                  </p>
+                </div>
+
+                {/* Interactive Controls for Length & Distance Exploration */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '20px', marginBottom: '24px' }}>
+                  {/* Length Interactive Controller */}
+                  <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '18px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <span style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--accent-cyan)' }}>
+                        Interactive Match Length [3 .. 258]
+                      </span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '1.2rem', fontWeight: 700, color: '#fff', background: 'rgba(0, 242, 254, 0.15)', padding: '2px 10px', borderRadius: '4px', border: '1px solid var(--accent-cyan)' }}>
+                        Length = {exploderLength}
+                      </span>
+                    </div>
+                    <input 
+                      type="range"
+                      min={3}
+                      max={258}
+                      value={exploderLength}
+                      onChange={e => setExploderLength(Number(e.target.value))}
+                      style={{ width: '100%', accentColor: 'var(--accent-cyan)', marginBottom: '12px' }}
+                    />
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {[3, 4, 9, 10, 11, 12, 19, 27, 45, 100, 258].map(l => (
+                        <button
+                          key={l}
+                          onClick={() => setExploderLength(l)}
+                          style={{
+                            padding: '3px 8px',
+                            fontSize: '0.75rem',
+                            background: exploderLength === l ? 'var(--accent-cyan)' : 'rgba(255,255,255,0.06)',
+                            color: exploderLength === l ? '#000' : '#fff',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '3px',
+                            cursor: 'pointer',
+                            fontWeight: 600
+                          }}>
+                          Len {l}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Distance Interactive Controller */}
+                  <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '18px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <span style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--accent-emerald)' }}>
+                        Interactive Backward Distance [1 .. 32768]
+                      </span>
+                      <span style={{ fontFamily: 'monospace', fontSize: '1.2rem', fontWeight: 700, color: '#fff', background: 'rgba(16, 185, 129, 0.15)', padding: '2px 10px', borderRadius: '4px', border: '1px solid var(--accent-emerald)' }}>
+                        Distance = {exploderDistance}
+                      </span>
+                    </div>
+                    <input 
+                      type="range"
+                      min={1}
+                      max={32768}
+                      value={exploderDistance}
+                      onChange={e => setExploderDistance(Number(e.target.value))}
+                      style={{ width: '100%', accentColor: 'var(--accent-emerald)', marginBottom: '12px' }}
+                    />
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {[1, 2, 4, 5, 8, 9, 35, 65, 500, 4096, 32768].map(d => (
+                        <button
+                          key={d}
+                          onClick={() => setExploderDistance(d)}
+                          style={{
+                            padding: '3px 8px',
+                            fontSize: '0.75rem',
+                            background: exploderDistance === d ? 'var(--accent-emerald)' : 'rgba(255,255,255,0.06)',
+                            color: exploderDistance === d ? '#000' : '#fff',
+                            border: '1px solid rgba(255,255,255,0.1)',
+                            borderRadius: '3px',
+                            cursor: 'pointer',
+                            fontWeight: 600
+                          }}>
+                          Dist {d}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Visual 4-Tier Cascade Transformation Diagram */}
+                {(() => {
+                  const lenInfo = mapLengthToRfc1951(exploderLength);
+                  const distInfo = mapDistanceToRfc1951(exploderDistance);
+                  const lenHuff = deflateData.litCodes[lenInfo.code] || '101';
+                  const distHuff = deflateData.distCodes[distInfo.code] || '010';
+
+                  const totalLenBits = lenHuff.length + lenInfo.extraBitsCount;
+                  const totalDistBits = distHuff.length + distInfo.extraBitsCount;
+                  const totalDeflateBits = totalLenBits + totalDistBits;
+                  const naiveFixedBits = 8 + 16; // 8 bits length + 16 bits distance
+
+                  return (
+                    <div style={{ background: '#080d1a', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '24px', marginBottom: '24px' }}>
+                      <h4 style={{ margin: '0 0 16px 0', fontSize: '1.1rem', color: '#fff' }}>
+                        The 4-Tier Transformation Cascade for Length = {exploderLength} & Distance = {exploderDistance}
+                      </h4>
+
+                      {/* Transformation Grid */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px', position: 'relative' }}>
+                        {/* Tier 1: Raw Value */}
+                        <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '6px', padding: '14px' }}>
+                          <span className="status-chip ready" style={{ fontSize: '0.68rem', marginBottom: '8px' }}>TIER 1: RAW LZ77 MATCH</span>
+                          <div style={{ fontSize: '1.2rem', fontFamily: 'monospace', fontWeight: 700, color: '#fff', marginTop: '6px' }}>
+                            L = {exploderLength}, D = {exploderDistance}
+                          </div>
+                          <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '6px 0 0' }}>
+                            Extracted directly by the sliding window substring search engine.
+                          </p>
+                        </div>
+
+                        {/* Tier 2: Category Symbol */}
+                        <div style={{ background: 'rgba(0, 242, 254, 0.05)', border: '1px solid rgba(0, 242, 254, 0.3)', borderRadius: '6px', padding: '14px' }}>
+                          <span className="status-chip ready" style={{ fontSize: '0.68rem', background: 'rgba(0, 242, 254, 0.2)', color: 'var(--accent-cyan)', marginBottom: '8px' }}>TIER 2: RFC 1951 CATEGORY SYMBOLS</span>
+                          <div style={{ fontSize: '0.9rem', color: '#fff', marginTop: '6px' }}>
+                            Length Range: <strong style={{ color: 'var(--accent-cyan)' }}>[{lenInfo.rangeStr}]</strong> → <strong>Symbol {lenInfo.code}</strong>
+                          </div>
+                          <div style={{ fontSize: '0.9rem', color: '#fff', marginTop: '4px' }}>
+                            Distance Range: <strong style={{ color: 'var(--accent-emerald)' }}>[{distInfo.rangeStr}]</strong> → <strong>Symbol {distInfo.code}</strong>
+                          </div>
+                          <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '6px 0 0' }}>
+                            Symbols assign a single compact ID to an entire bracket of lengths / distances.
+                          </p>
+                        </div>
+
+                        {/* Tier 3: Canonical Huffman Code */}
+                        <div style={{ background: 'rgba(138, 43, 226, 0.05)', border: '1px solid rgba(138, 43, 226, 0.3)', borderRadius: '6px', padding: '14px' }}>
+                          <span className="status-chip ready" style={{ fontSize: '0.68rem', background: 'rgba(138, 43, 226, 0.2)', color: 'var(--accent-purple)', marginBottom: '8px' }}>TIER 3: CANONICAL HUFFMAN CODES</span>
+                          <div style={{ fontSize: '0.9rem', color: '#fff', marginTop: '6px' }}>
+                            Code for Sym {lenInfo.code}: <code style={{ color: 'var(--accent-cyan)', fontWeight: 700 }}>{lenHuff}</code> ({lenHuff.length} bits)
+                          </div>
+                          <div style={{ fontSize: '0.9rem', color: '#fff', marginTop: '4px' }}>
+                            Code for Sym {distInfo.code}: <code style={{ color: 'var(--accent-emerald)', fontWeight: 700 }}>{distHuff}</code> ({distHuff.length} bits)
+                          </div>
+                          <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '6px 0 0' }}>
+                            Frequently occurring brackets receive shorter prefix codes (e.g. 2-5 bits).
+                          </p>
+                        </div>
+
+                        {/* Tier 4: Extra Bits Specification */}
+                        <div style={{ background: 'rgba(255, 170, 0, 0.05)', border: '1px solid rgba(255, 170, 0, 0.3)', borderRadius: '6px', padding: '14px' }}>
+                          <span className="status-chip ready" style={{ fontSize: '0.68rem', background: 'rgba(255, 170, 0, 0.2)', color: 'var(--accent-amber)', marginBottom: '8px' }}>TIER 4: EXTRA BITS SPECIFICATION</span>
+                          <div style={{ fontSize: '0.9rem', color: '#fff', marginTop: '6px' }}>
+                            Len Offset: {exploderLength} - {lenInfo.baseLen} = {lenInfo.offset} → <code style={{ color: 'var(--accent-amber)' }}>{lenInfo.extraBitsCount > 0 ? lenInfo.extraBitsBin : '(0b extra)'}</code>
+                          </div>
+                          <div style={{ fontSize: '0.9rem', color: '#fff', marginTop: '4px' }}>
+                            Dist Offset: {exploderDistance} - {distInfo.baseDist} = {distInfo.offset} → <code style={{ color: 'var(--accent-amber)' }}>{distInfo.extraBitsCount > 0 ? distInfo.extraBitsBin : '(0b extra)'}</code>
+                          </div>
+                          <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', margin: '6px 0 0' }}>
+                            Appended as raw uncompressed bits to pinpoint the exact value inside the bracket!
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Final Transmitted Bitstream Layout */}
+                      <div style={{ marginTop: '20px', padding: '16px', background: '#03050a', borderRadius: '6px', border: '1px solid rgba(0, 242, 254, 0.2)' }}>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>
+                          Final Transmitted Bitstream Layout in DEFLATE Stream:
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', fontFamily: 'monospace', fontSize: '1.05rem' }}>
+                          <div style={{ padding: '6px 12px', background: 'rgba(0, 242, 254, 0.15)', border: '1px solid var(--accent-cyan)', borderRadius: '4px', color: 'var(--accent-cyan)' }}>
+                            [ Huffman Code: {lenHuff} ]
+                            <div style={{ fontSize: '0.65rem', opacity: 0.8 }}>Len Sym {lenInfo.code} ({lenHuff.length}b)</div>
+                          </div>
+                          {lenInfo.extraBitsCount > 0 && (
+                            <div style={{ padding: '6px 12px', background: 'rgba(255, 170, 0, 0.15)', border: '1px solid var(--accent-amber)', borderRadius: '4px', color: 'var(--accent-amber)' }}>
+                              [ Extra: {lenInfo.extraBitsBin} ]
+                              <div style={{ fontSize: '0.65rem', opacity: 0.8 }}>Len Offset ({lenInfo.extraBitsCount}b)</div>
+                            </div>
+                          )}
+                          <span style={{ color: 'var(--text-muted)' }}>+</span>
+                          <div style={{ padding: '6px 12px', background: 'rgba(16, 185, 129, 0.15)', border: '1px solid var(--accent-emerald)', borderRadius: '4px', color: 'var(--accent-emerald)' }}>
+                            [ Huffman Code: {distHuff} ]
+                            <div style={{ fontSize: '0.65rem', opacity: 0.8 }}>Dist Sym {distInfo.code} ({distHuff.length}b)</div>
+                          </div>
+                          {distInfo.extraBitsCount > 0 && (
+                            <div style={{ padding: '6px 12px', background: 'rgba(255, 170, 0, 0.15)', border: '1px solid var(--accent-amber)', borderRadius: '4px', color: 'var(--accent-amber)' }}>
+                              [ Extra: {distInfo.extraBitsBin} ]
+                              <div style={{ fontSize: '0.65rem', opacity: 0.8 }}>Dist Offset ({distInfo.extraBitsCount}b)</div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Comparative Arithmetic: Fixed vs DEFLATE */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '14px', paddingTop: '12px', borderTop: '1px solid rgba(255,255,255,0.08)', flexWrap: 'wrap', gap: '10px' }}>
+                          <div style={{ fontSize: '0.85rem' }}>
+                            <span style={{ color: 'var(--text-muted)' }}>Naive Fixed Allocation: </span>
+                            <span style={{ color: 'var(--accent-rose)', fontWeight: 700 }}>{naiveFixedBits} bits</span> (8b Length + 16b Distance)
+                          </div>
+                          <div style={{ fontSize: '0.85rem' }}>
+                            <span style={{ color: 'var(--text-muted)' }}>DEFLATE Symbol + Extra Bits: </span>
+                            <span style={{ color: 'var(--accent-emerald)', fontWeight: 700 }}>{totalDeflateBits} bits total</span>
+                          </div>
+                          <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--accent-cyan)', background: 'rgba(0, 242, 254, 0.1)', padding: '4px 10px', borderRadius: '4px' }}>
+                            Net Savings: {naiveFixedBits - totalDeflateBits} bits saved ({Math.round(((naiveFixedBits - totalDeflateBits) / naiveFixedBits) * 100)}% reduction on token metadata!)
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Side-by-Side Reference Tables with Glowing Active Bracket Row */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '20px' }}>
+                  {/* Length Codes Table */}
+                  <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                    <h5 style={{ margin: '0 0 10px 0', fontSize: '0.92rem', color: 'var(--accent-cyan)' }}>
+                      RFC 1951 Length Codes Table (Symbols 257–285)
+                    </h5>
+                    <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', fontFamily: 'monospace' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                            <th style={{ padding: '4px 6px' }}>Code</th>
+                            <th style={{ padding: '4px 6px' }}>Extra Bits</th>
+                            <th style={{ padding: '4px 6px' }}>Lengths</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {RFC1951_LENGTH_TABLE.map(row => {
+                            const isSelected = exploderLength >= row.minLen && exploderLength <= row.maxLen;
+                            return (
+                              <tr 
+                                key={row.code}
+                                style={{
+                                  background: isSelected ? 'rgba(0, 242, 254, 0.2)' : 'transparent',
+                                  fontWeight: isSelected ? 700 : 400,
+                                  color: isSelected ? 'var(--accent-cyan)' : 'var(--text-secondary)'
+                                }}>
+                                <td style={{ padding: '4px 6px' }}>{row.code}</td>
+                                <td style={{ padding: '4px 6px' }}>{row.extraBits}</td>
+                                <td style={{ padding: '4px 6px' }}>{row.minLen === row.maxLen ? row.minLen : `${row.minLen}–${row.maxLen}`}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Distance Codes Table */}
+                  <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                    <h5 style={{ margin: '0 0 10px 0', fontSize: '0.92rem', color: 'var(--accent-emerald)' }}>
+                      RFC 1951 Distance Codes Table (Symbols 0–29)
+                    </h5>
+                    <div style={{ maxHeight: '280px', overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', fontFamily: 'monospace' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                            <th style={{ padding: '4px 6px' }}>Code</th>
+                            <th style={{ padding: '4px 6px' }}>Extra Bits</th>
+                            <th style={{ padding: '4px 6px' }}>Distances</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {RFC1951_DISTANCE_TABLE.map(row => {
+                            const isSelected = exploderDistance >= row.minDist && exploderDistance <= row.maxDist;
+                            return (
+                              <tr 
+                                key={row.code}
+                                style={{
+                                  background: isSelected ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
+                                  fontWeight: isSelected ? 700 : 400,
+                                  color: isSelected ? 'var(--accent-emerald)' : 'var(--text-secondary)'
+                                }}>
+                                <td style={{ padding: '4px 6px' }}>{row.code}</td>
+                                <td style={{ padding: '4px 6px' }}>{row.extraBits}</td>
+                                <td style={{ padding: '4px 6px' }}>{row.minDist === row.maxDist ? row.minDist : `${row.minDist}–${row.maxDist}`}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* -----------------------------------------------------------------
+                PHASE 3: DUAL CANONICAL HUFFMAN TREES
+                ----------------------------------------------------------------- */}
+            {deflateAnimPhase === 'trees' && (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '20px' }}>
+                  {/* Tree 1: Literal / Length Codebook */}
+                  <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '18px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <div>
+                        <h4 style={{ margin: 0, fontSize: '1rem', color: 'var(--accent-cyan)' }}>
+                          Tree 1: Literal & Length Alphabet (0–285)
+                        </h4>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Literals [0..255] + EOB [256] + Length Codes [257..285]
+                        </span>
+                      </div>
+                      <span className="status-chip ready" style={{ fontSize: '0.7rem' }}>
+                        {Object.keys(deflateData.litLengths).length} Active Codes
+                      </span>
+                    </div>
+
+                    <div style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                            <th style={{ padding: '6px' }}>Sym</th>
+                            <th style={{ padding: '6px' }}>Meaning</th>
+                            <th style={{ padding: '6px' }}>Code Length</th>
+                            <th style={{ padding: '6px' }}>Canonical Code</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.keys(deflateData.litLengths).map(symStr => {
+                            const sym = Number(symStr);
+                            let meaning = `'${String.fromCharCode(sym)}' (ASCII ${sym})`;
+                            if (sym === 256) meaning = 'End-Of-Block (EOB)';
+                            else if (sym > 256) meaning = `Length Code (Sym ${sym})`;
+                            else if (sym === 32) meaning = 'Space (0x20)';
+
+                            return (
+                              <tr key={sym} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                <td style={{ padding: '6px', color: 'var(--accent-cyan)' }}>{sym}</td>
+                                <td style={{ padding: '6px', color: 'var(--text-secondary)' }}>{meaning}</td>
+                                <td style={{ padding: '6px', color: '#fff' }}>{deflateData.litLengths[sym]} bits</td>
+                                <td style={{ padding: '6px', color: 'var(--accent-emerald)', fontWeight: 700 }}>
+                                  {deflateData.litCodes[sym]}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Tree 2: Distance Codebook */}
+                  <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '18px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                      <div>
+                        <h4 style={{ margin: 0, fontSize: '1rem', color: 'var(--accent-emerald)' }}>
+                          Tree 2: Distance Alphabet (0–29)
+                        </h4>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                          Backward Distance Bracket Codes [1..32768]
+                        </span>
+                      </div>
+                      <span className="status-chip ready" style={{ fontSize: '0.7rem' }}>
+                        {Object.keys(deflateData.distLengths).length} Active Codes
+                      </span>
+                    </div>
+
+                    <div style={{ maxHeight: '380px', overflowY: 'auto' }}>
+                      {Object.keys(deflateData.distLengths).length === 0 ? (
+                        <div style={{ padding: '30px 10px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                          No sliding window match pairs present in this text sample. Distance tree is empty.
+                        </div>
+                      ) : (
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', fontFamily: 'monospace' }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1px solid var(--border-subtle)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                              <th style={{ padding: '6px' }}>Code</th>
+                              <th style={{ padding: '6px' }}>Distance Range</th>
+                              <th style={{ padding: '6px' }}>Code Length</th>
+                              <th style={{ padding: '6px' }}>Canonical Code</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {Object.keys(deflateData.distLengths).map(codeStr => {
+                              const code = Number(codeStr);
+                              const entry = RFC1951_DISTANCE_TABLE.find(e => e.code === code);
+                              const rangeStr = entry ? (entry.minDist === entry.maxDist ? `${entry.minDist}` : `${entry.minDist}–${entry.maxDist}`) : 'unknown';
+
+                              return (
+                                <tr key={code} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)' }}>
+                                  <td style={{ padding: '6px', color: 'var(--accent-emerald)' }}>{code}</td>
+                                  <td style={{ padding: '6px', color: 'var(--text-secondary)' }}>{rangeStr} ({entry?.extraBits || 0}b extra)</td>
+                                  <td style={{ padding: '6px', color: '#fff' }}>{deflateData.distLengths[code]} bits</td>
+                                  <td style={{ padding: '6px', color: 'var(--accent-cyan)', fontWeight: 700 }}>
+                                    {deflateData.distCodes[code]}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* -----------------------------------------------------------------
+                PHASE 4: REAL DOCUMENT DATA MATRIX & BITSTREAM AUDIT
+                ----------------------------------------------------------------- */}
+            {deflateAnimPhase === 'matrix' && deflateData.stats && (
+              <div>
+                {/* 4-Way Comparative Table (Why DEFLATE Wins) */}
+                <div style={{ background: '#090e1c', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '20px', marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 16px 0', fontSize: '1.15rem', color: '#fff' }}>
+                    4-Way Compression Paradigm Comparison (Same Input Document)
+                  </h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px' }}>
+                    <div style={{ background: 'rgba(255,255,255,0.03)', padding: '14px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>1. Uncompressed Original</div>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 700, color: '#fff', margin: '4px 0' }}>
+                        {deflateData.stats.rawBytes} Bytes
+                      </div>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                        {deflateData.stats.rawBits} raw bits (8b per character)
+                      </div>
+                    </div>
+
+                    <div style={{ background: 'rgba(255, 71, 87, 0.05)', padding: '14px', borderRadius: '6px', border: '1px solid rgba(255, 71, 87, 0.2)' }}>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--accent-rose)' }}>2. Raw LZ77 (28-Bit Triplets)</div>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent-rose)', margin: '4px 0' }}>
+                        {deflateData.stats.rawLzBytes} Bytes
+                      </div>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                        {deflateData.stats.rawLzBits} bits (Expands literals by +250%)
+                      </div>
+                    </div>
+
+                    <div style={{ background: 'rgba(255, 170, 0, 0.05)', padding: '14px', borderRadius: '6px', border: '1px solid rgba(255, 170, 0, 0.2)' }}>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--accent-amber)' }}>3. Pure Canonical Huffman</div>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent-amber)', margin: '4px 0' }}>
+                        {deflateData.stats.pureHuffBytes} Bytes
+                      </div>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--text-secondary)' }}>
+                        Cannot deduplicate multi-byte phrases
+                      </div>
+                    </div>
+
+                    <div style={{ background: 'rgba(0, 242, 254, 0.08)', padding: '14px', borderRadius: '6px', border: '1px solid var(--accent-cyan)' }}>
+                      <div style={{ fontSize: '0.74rem', color: 'var(--accent-cyan)', fontWeight: 700 }}>4. DEFLATE (LZ77 + Huffman)</div>
+                      <div style={{ fontSize: '1.4rem', fontWeight: 700, color: 'var(--accent-cyan)', margin: '4px 0' }}>
+                        {deflateData.stats.totalCompressedBytes} Bytes
+                      </div>
+                      <div style={{ fontSize: '0.76rem', color: 'var(--accent-emerald)', fontWeight: 700 }}>
+                        {deflateData.stats.spaceSavingsPercent}% Savings ({deflateData.stats.compressionRatio}:1 Ratio)
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Master Step-by-Step Mathematical Calculation Audit */}
+                <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '20px', marginBottom: '24px' }}>
+                  <h4 style={{ margin: '0 0 14px 0', fontSize: '1.05rem', color: '#fff' }}>
+                    Full Document Mathematical Size Reduction Breakdown (Before vs After)
+                  </h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', fontSize: '0.84rem' }}>
+                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>Stage 1 Deduplication Metrics</div>
+                      <div>Input Size: <strong>{deflateData.stats.rawBytes} bytes</strong></div>
+                      <div>Literals: <strong>{deflateData.stats.literalsCount}</strong> (unmatched bytes)</div>
+                      <div>Matches: <strong>{deflateData.stats.matchesCount}</strong> phrases</div>
+                      <div>Deduplicated Chars: <strong>{deflateData.stats.bytesDeduplicated} bytes</strong></div>
+                    </div>
+
+                    <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>Bitstream Overhead Partitioning</div>
+                      <div>Container Header: <strong>{deflateData.stats.headerBits} bits</strong> (12 Bytes)</div>
+                      <div>Lit/Len Codebook Header: <strong>{deflateData.stats.litTreeBits} bits</strong></div>
+                      <div>Dist Codebook Header: <strong>{deflateData.stats.distTreeBits} bits</strong></div>
+                      <div>Payload Tokens: <strong>{deflateData.stats.runningPayloadBits} bits</strong></div>
+                    </div>
+
+                    <div style={{ background: 'rgba(0, 242, 254, 0.05)', padding: '12px', borderRadius: '4px', border: '1px solid rgba(0, 242, 254, 0.2)' }}>
+                      <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, marginBottom: '4px' }}>Final Net Arithmetic</div>
+                      <div>Original Size: <strong>{deflateData.stats.rawBits} bits</strong></div>
+                      <div>Final Size: <strong>{deflateData.stats.totalCompressedBits} bits</strong> ({deflateData.stats.totalCompressedBytes} B)</div>
+                      <div>Net Bits Eliminated: <strong>{deflateData.stats.rawBits - deflateData.stats.totalCompressedBits} bits</strong></div>
+                      <div style={{ color: 'var(--accent-emerald)', fontWeight: 700, marginTop: '4px' }}>
+                        Space Savings: {deflateData.stats.spaceSavingsPercent}%
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* -----------------------------------------------------------------
+                PRODUCTION ARCHITECTURE GUIDE: WHEN TO USE IT VS WHEN NOT TO USE IT
+                ----------------------------------------------------------------- */}
+            <div className="decision-framework-card" style={{ marginTop: '24px' }}>
+              <div className="section-title-wrap">
+                <span className="section-heading-badge lossless">PRODUCTION ARCHITECTURE GUIDE</span>
+                <h3 className="section-title">When to Use DEFLATE vs When NOT to Use It</h3>
+                <p className="section-subtitle">
+                  The definitive engineering trade-off matrix for systems architects, web performance engineers, and protocol designers.
+                </p>
+              </div>
+
+              <div className="decision-grid">
+                {/* When to Use Column */}
+                <div className="decision-col when-to-use">
+                  <div className="decision-col-header">
+                    <CheckCircle2 size={20} />
+                    <span>When to Use DEFLATE (RFC 1951)</span>
+                  </div>
+                  <ul className="decision-items-list">
+                    <li className="decision-item">
+                      <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                      <div>
+                        <strong>Universal Cross-Platform Interchange:</strong> The gold standard format supported natively by every operating system, microcontroller, browser, and language runtime on Earth (ZIP archives, GZIP streams, PNG images, and PDF <code>/FlateDecode</code> streams).
+                      </div>
+                    </li>
+                    <li className="decision-item">
+                      <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                      <div>
+                        <strong>HTTP Web Asset Delivery (GZIP / Deflate):</strong> Serving HTML, CSS, JavaScript, and SVG assets over HTTP/1.1 and HTTP/2 where legacy client support is mandatory.
+                      </div>
+                    </li>
+                    <li className="decision-item">
+                      <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                      <div>
+                        <strong>Git Source Control Repositories (zlib loose objects):</strong> Git stores all commits, trees, and blobs using zlib DEFLATE compression due to its stability, zero licensing risk, and deterministic reconstruction.
+                      </div>
+                    </li>
+                    <li className="decision-item">
+                      <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                      <div>
+                        <strong>Zero Patent / Royalty Liability:</strong> Developed deliberately by Phil Katz in 1993 with no proprietary patents, ensuring complete legal safety for enterprise software.
+                      </div>
+                    </li>
+                  </ul>
+                </div>
+
+                {/* When NOT to Use Column */}
+                <div className="decision-col when-not-to-use">
+                  <div className="decision-col-header">
+                    <XCircle size={20} />
+                    <span>When NOT to Use It & Alternatives</span>
+                  </div>
+                  <ul className="decision-items-list">
+                    <li className="decision-item">
+                      <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                      <div>
+                        <strong>Ultra-High Throughput Real-Time Memory Pipelines (&gt; 1 GB/s):</strong> DEFLATE decompression typically peaks around 300–450 MB/s per core, making it a severe bottleneck for in-memory databases, IPC channels, and network RPCs.
+                        <div style={{ marginTop: '4px' }}>
+                          <span className="badge-alt">Use Instead:</span> <strong>LZ4</strong> (3.5 GB/s decompression) or <strong>Snappy</strong>.
+                        </div>
+                      </div>
+                    </li>
+                    <li className="decision-item">
+                      <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                      <div>
+                        <strong>Modern Systems Where Modern Codecs are Permitted:</strong> Modern codecs beat DEFLATE on both compression density and decompression speed simultaneously.
+                        <div style={{ marginTop: '4px' }}>
+                          <span className="badge-alt">Use Instead:</span> <strong>Zstandard (Zstd)</strong> (15–25% higher ratio and 3× faster decompression) or <strong>Brotli</strong> (for web text assets).
+                        </div>
+                      </div>
+                    </li>
+                    <li className="decision-item">
+                      <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                      <div>
+                        <strong>Micro-Payloads (&lt; 100 Bytes):</strong> The overhead of the 12-byte container header plus the dynamic Canonical Huffman codebook lengths causes positive file expansion.
+                        <div style={{ marginTop: '4px' }}>
+                          <span className="badge-alt">Use Instead:</span> Store raw bytes (<code>STORE</code> mode) or use <strong>Zstandard Pre-Trained Dictionaries</strong>.
+                        </div>
+                      </div>
+                    </li>
+                    <li className="decision-item">
+                      <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                      <div>
+                        <strong>Massive Files with Long-Distance Repetitions (&gt; 32 KB Horizon):</strong> RFC 1951 restricts the sliding window horizon to 32 KB. Duplicate assets separated by megabytes cannot be referenced.
+                        <div style={{ marginTop: '4px' }}>
+                          <span className="badge-alt">Use Instead:</span> <strong>Zstandard Long Distance Matching (--long)</strong>, <strong>Brotli</strong>, or <strong>LZMA / 7-Zip</strong>.
+                        </div>
+                      </div>
+                    </li>
+                  </ul>
+                </div>
               </div>
             </div>
           </div>

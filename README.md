@@ -21,18 +21,13 @@ Compression/
 │   ├── metrics.hpp                # Compression ratio, entropy, throughput
 │   └── test_framework.hpp         # Round-trip verification & test fixtures
 ├── lossless/                      # Lossless Compression Algorithms
-│   ├── 01_run_length/             # RLE (Basic, PackBits, Bit-level)
-│   ├── 02_shannon_fano/           # Shannon-Fano Coding
-│   ├── 03_huffman/                # Canonical & Adaptive Huffman Coding
-│   ├── 04_golomb_rice/            # Golomb & Rice Coding
-│   ├── 05_arithmetic/             # Integer Range / Arithmetic Coding
-│   ├── 06_ans/                    # Asymmetric Numeral Systems (rANS / tANS)
-│   ├── 07_lz77/                   # LZ77 Sliding Window Compression
-│   ├── 08_lz78_lzw/               # LZ78 and LZW Trie Dictionary
-│   ├── 09_lzss/                   # LZSS (Token-optimized LZ77)
-│   ├── 10_deflate/                # Complete DEFLATE (LZSS + Huffman)
-│   ├── 11_bwt_mtf/                # Burrows-Wheeler Transform + Move-To-Front
-│   └── 12_delta_diff/             # Delta / Differencing Preconditioning
+│   ├── prefix_tree/               # Algorithm #1: Binary Prefix Trees & Kraft Inequality
+│   ├── huffman/                   # Algorithm #2: Canonical Huffman Coding (RFC 1951)
+│   ├── lz77/                      # Algorithm #7: LZ77 Sliding Window Dictionary
+│   ├── deflate/                   # Algorithm #8: DEFLATE (LZ77 + Dual Canonical Huffman)
+│   ├── lz78_lzw/                  # Upcoming: LZ78 & LZW Trie Dictionary
+│   ├── bwt_mtf/                   # Upcoming: Burrows-Wheeler Transform & MTF
+│   └── ans/                       # Upcoming: Asymmetric Numeral Systems (rANS / tANS)
 └── lossy/                         # Lossy Compression Algorithms
     ├── 01_quantization/           # Uniform & Lloyd-Max Scalar Quantization
     ├── 02_vector_quantization/    # Linde-Buzo-Gray (LBG) Vector Quantization
