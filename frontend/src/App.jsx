@@ -4850,99 +4850,101 @@ export default function App() {
                 </div>
               </div>
             )}
+          </div>
 
-            {/* -----------------------------------------------------------------
-                PRODUCTION ARCHITECTURE GUIDE: WHEN TO USE IT VS WHEN NOT TO USE IT
-                ----------------------------------------------------------------- */}
-            <div className="decision-framework-card" style={{ marginTop: '24px' }}>
-              <div className="section-title-wrap">
-                <span className="section-heading-badge lossless">PRODUCTION ARCHITECTURE GUIDE</span>
-                <h3 className="section-title">When to Use DEFLATE vs When NOT to Use It</h3>
-                <p className="section-subtitle">
-                  The definitive engineering trade-off matrix for systems architects, web performance engineers, and protocol designers.
-                </p>
+          {/* =========================================================================
+              PRODUCTION ARCHITECTURE GUIDE: WHEN TO USE IT VS WHEN NOT TO USE IT
+              ========================================================================= */}
+          <div className="decision-guide-card">
+            <div className="decision-guide-header">
+              <div className="decision-guide-title">
+                <Zap size={22} color="var(--accent-cyan)" />
+                <span>Production Architecture Guide: When to Use vs. When NOT to Use</span>
+              </div>
+              <span className="algo-type-tag" style={{ color: 'var(--accent-cyan)', borderColor: 'rgba(0, 242, 254, 0.3)' }}>
+                RFC 1951 DEFLATE Architecture
+              </span>
+            </div>
+
+            <div className="decision-guide-grid">
+              {/* When to Use Column */}
+              <div className="decision-col when-to-use">
+                <div className="decision-col-header">
+                  <CheckCircle2 size={20} />
+                  <span>When to Use DEFLATE (RFC 1951)</span>
+                </div>
+                <ul className="decision-items-list">
+                  <li className="decision-item">
+                    <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                    <div>
+                      <strong>Universal Cross-Platform Interchange:</strong> The gold standard format supported natively by every operating system, microcontroller, browser, and language runtime on Earth (ZIP archives, GZIP streams, PNG images, and PDF <code>/FlateDecode</code> streams).
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                    <div>
+                      <strong>HTTP Web Asset Delivery (GZIP / Deflate):</strong> Serving HTML, CSS, JavaScript, and SVG assets over HTTP/1.1 and HTTP/2 where legacy client support is mandatory.
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                    <div>
+                      <strong>Git Source Control Repositories (zlib loose objects):</strong> Git stores all commits, trees, and blobs using zlib DEFLATE compression due to its stability, zero licensing risk, and deterministic reconstruction.
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                    <div>
+                      <strong>Zero Patent / Royalty Liability:</strong> Developed deliberately by Phil Katz in 1993 with no proprietary patents, ensuring complete legal safety for enterprise software.
+                    </div>
+                  </li>
+                </ul>
               </div>
 
-              <div className="decision-grid">
-                {/* When to Use Column */}
-                <div className="decision-col when-to-use">
-                  <div className="decision-col-header">
-                    <CheckCircle2 size={20} />
-                    <span>When to Use DEFLATE (RFC 1951)</span>
-                  </div>
-                  <ul className="decision-items-list">
-                    <li className="decision-item">
-                      <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
-                      <div>
-                        <strong>Universal Cross-Platform Interchange:</strong> The gold standard format supported natively by every operating system, microcontroller, browser, and language runtime on Earth (ZIP archives, GZIP streams, PNG images, and PDF <code>/FlateDecode</code> streams).
-                      </div>
-                    </li>
-                    <li className="decision-item">
-                      <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
-                      <div>
-                        <strong>HTTP Web Asset Delivery (GZIP / Deflate):</strong> Serving HTML, CSS, JavaScript, and SVG assets over HTTP/1.1 and HTTP/2 where legacy client support is mandatory.
-                      </div>
-                    </li>
-                    <li className="decision-item">
-                      <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
-                      <div>
-                        <strong>Git Source Control Repositories (zlib loose objects):</strong> Git stores all commits, trees, and blobs using zlib DEFLATE compression due to its stability, zero licensing risk, and deterministic reconstruction.
-                      </div>
-                    </li>
-                    <li className="decision-item">
-                      <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
-                      <div>
-                        <strong>Zero Patent / Royalty Liability:</strong> Developed deliberately by Phil Katz in 1993 with no proprietary patents, ensuring complete legal safety for enterprise software.
-                      </div>
-                    </li>
-                  </ul>
+              {/* When NOT to Use Column */}
+              <div className="decision-col when-not-to-use">
+                <div className="decision-col-header">
+                  <XCircle size={20} />
+                  <span>When NOT to Use It & Alternatives</span>
                 </div>
-
-                {/* When NOT to Use Column */}
-                <div className="decision-col when-not-to-use">
-                  <div className="decision-col-header">
-                    <XCircle size={20} />
-                    <span>When NOT to Use It & Alternatives</span>
-                  </div>
-                  <ul className="decision-items-list">
-                    <li className="decision-item">
-                      <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
-                      <div>
-                        <strong>Ultra-High Throughput Real-Time Memory Pipelines (&gt; 1 GB/s):</strong> DEFLATE decompression typically peaks around 300–450 MB/s per core, making it a severe bottleneck for in-memory databases, IPC channels, and network RPCs.
-                        <div style={{ marginTop: '4px' }}>
-                          <span className="badge-alt">Use Instead:</span> <strong>LZ4</strong> (3.5 GB/s decompression) or <strong>Snappy</strong>.
-                        </div>
+                <ul className="decision-items-list">
+                  <li className="decision-item">
+                    <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                    <div>
+                      <strong>Ultra-High Throughput Real-Time Memory Pipelines (&gt; 1 GB/s):</strong> DEFLATE decompression typically peaks around 300–450 MB/s per core, making it a severe bottleneck for in-memory databases, IPC channels, and network RPCs.
+                      <div style={{ marginTop: '4px' }}>
+                        <span className="badge-alt">Use Instead:</span> <strong>LZ4</strong> (3.5 GB/s decompression) or <strong>Snappy</strong>.
                       </div>
-                    </li>
-                    <li className="decision-item">
-                      <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
-                      <div>
-                        <strong>Modern Systems Where Modern Codecs are Permitted:</strong> Modern codecs beat DEFLATE on both compression density and decompression speed simultaneously.
-                        <div style={{ marginTop: '4px' }}>
-                          <span className="badge-alt">Use Instead:</span> <strong>Zstandard (Zstd)</strong> (15–25% higher ratio and 3× faster decompression) or <strong>Brotli</strong> (for web text assets).
-                        </div>
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                    <div>
+                      <strong>Modern Systems Where Modern Codecs are Permitted:</strong> Modern codecs beat DEFLATE on both compression density and decompression speed simultaneously.
+                      <div style={{ marginTop: '4px' }}>
+                        <span className="badge-alt">Use Instead:</span> <strong>Zstandard (Zstd)</strong> (15–25% higher ratio and 3× faster decompression) or <strong>Brotli</strong> (for web text assets).
                       </div>
-                    </li>
-                    <li className="decision-item">
-                      <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
-                      <div>
-                        <strong>Micro-Payloads (&lt; 100 Bytes):</strong> The overhead of the 12-byte container header plus the dynamic Canonical Huffman codebook lengths causes positive file expansion.
-                        <div style={{ marginTop: '4px' }}>
-                          <span className="badge-alt">Use Instead:</span> Store raw bytes (<code>STORE</code> mode) or use <strong>Zstandard Pre-Trained Dictionaries</strong>.
-                        </div>
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                    <div>
+                      <strong>Micro-Payloads (&lt; 100 Bytes):</strong> The overhead of the 12-byte container header plus the dynamic Canonical Huffman codebook lengths causes positive file expansion.
+                      <div style={{ marginTop: '4px' }}>
+                        <span className="badge-alt">Use Instead:</span> Store raw bytes (<code>STORE</code> mode) or use <strong>Zstandard Pre-Trained Dictionaries</strong>.
                       </div>
-                    </li>
-                    <li className="decision-item">
-                      <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
-                      <div>
-                        <strong>Massive Files with Long-Distance Repetitions (&gt; 32 KB Horizon):</strong> RFC 1951 restricts the sliding window horizon to 32 KB. Duplicate assets separated by megabytes cannot be referenced.
-                        <div style={{ marginTop: '4px' }}>
-                          <span className="badge-alt">Use Instead:</span> <strong>Zstandard Long Distance Matching (--long)</strong>, <strong>Brotli</strong>, or <strong>LZMA / 7-Zip</strong>.
-                        </div>
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                    <div>
+                      <strong>Massive Files with Long-Distance Repetitions (&gt; 32 KB Horizon):</strong> RFC 1951 restricts the sliding window horizon to 32 KB. Duplicate assets separated by megabytes cannot be referenced.
+                      <div style={{ marginTop: '4px' }}>
+                        <span className="badge-alt">Use Instead:</span> <strong>Zstandard Long Distance Matching (--long)</strong>, <strong>Brotli</strong>, or <strong>LZMA / 7-Zip</strong>.
                       </div>
-                    </li>
-                  </ul>
-                </div>
+                    </div>
+                  </li>
+                </ul>
               </div>
             </div>
           </div>

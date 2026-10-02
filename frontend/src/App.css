@@ -1227,6 +1227,9 @@ button {
   padding: 28px;
   margin-top: 30px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
 }
 
 .decision-guide-header {
@@ -1250,27 +1253,91 @@ button {
   color: var(--text-primary);
 }
 
+/* ================= Architecture Decision Guide & Trade-Off Cards ================= */
+.decision-framework-card {
+  background: rgba(10, 15, 29, 0.65);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 28px 24px;
+  margin-top: 28px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.section-title-wrap {
+  margin-bottom: 22px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  margin: 10px 0 6px 0;
+  letter-spacing: -0.015em;
+}
+
+.section-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.55;
+  max-width: 900px;
+}
+
+.decision-grid,
 .decision-guide-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 22px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 800px) {
+  .decision-grid,
+  .decision-guide-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  .studio-container {
+    padding: 16px 14px 40px;
+  }
+  .decision-guide-card,
+  .decision-framework-card {
+    padding: 20px 14px;
+  }
+  .decision-col {
+    padding: 18px 14px;
+  }
 }
 
 .decision-col {
   border-radius: var(--radius-sm);
-  padding: 22px;
+  padding: 22px 24px;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .decision-col.when-to-use {
-  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(0, 242, 254, 0.05));
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(0, 242, 254, 0.03));
   border: 1px solid rgba(16, 185, 129, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
 .decision-col.when-not-to-use {
-  background: linear-gradient(135deg, rgba(244, 63, 94, 0.1), rgba(245, 158, 11, 0.05));
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.08), rgba(245, 158, 11, 0.03));
   border: 1px solid rgba(244, 63, 94, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
 }
 
 .decision-col-header {
@@ -1280,7 +1347,7 @@ button {
   font-family: var(--font-display);
   font-size: 1.15rem;
   font-weight: 700;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
 }
 
 .decision-col.when-to-use .decision-col-header {
@@ -1293,23 +1360,37 @@ button {
 
 .decision-items-list {
   list-style: none;
+  margin: 0;
+  padding: 0; /* CRITICAL: removes user-agent 40px default left indent */
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .decision-item {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  font-size: 0.9rem;
-  line-height: 1.55;
+  font-size: 0.88rem;
+  line-height: 1.6;
   color: var(--text-secondary);
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
 }
 
 .decision-item .item-icon {
   flex-shrink: 0;
   margin-top: 3px;
+}
+
+.decision-item > div {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .decision-item strong {
@@ -1323,7 +1404,7 @@ button {
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 4px;
-  margin-left: 6px;
+  margin-right: 6px;
   background: rgba(244, 63, 94, 0.2);
   color: #fda4af;
   border: 1px solid rgba(244, 63, 94, 0.4);
