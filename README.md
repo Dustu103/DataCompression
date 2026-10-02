@@ -1,6 +1,6 @@
 # Compression Mastery: Algorithms, Theory & Implementation in C++
 
-Welcome to the comprehensive repository for learning, implementing, and mastering **Data Compression Algorithms from First Principles in Modern C++ (C++17/C++20)**.
+Welcome to the comprehensive repository for learning, implementing, and mastering **Data Compression Algorithms from First Principles in Modern C++20**.
 
 Every algorithm in this repository is implemented with **zero external dependencies**, featuring:
 1. **Mathematical & Information-Theoretic Foundations** (Shannon entropy, Kraft inequality, rate-distortion theory).

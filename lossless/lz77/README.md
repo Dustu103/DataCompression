@@ -1,6 +1,6 @@
 # LZ77 Sliding Window Compression
 
-An idiomatic, zero-dependency C++17 implementation of the **LZ77 (Lempel-Ziv 1977)** dictionary compression algorithm with full bitstream serialization, round-trip verification, and benchmark instrumentation.
+An idiomatic, zero-dependency Modern C++20 implementation of the **LZ77 (Lempel-Ziv 1977)** dictionary compression algorithm with full bitstream serialization, round-trip verification, and benchmark instrumentation.
 
 ---
 

@@ -396,11 +396,35 @@ const ALGORITHMS_CATALOG = [
   }
 ];
 
+// Valid routable views in the unified application
+const VALID_VIEWS = new Set(['matrix', 'prefix-tree', 'huffman', 'lz77', 'deflate']);
+
+// Universal URL & Route Resolver (supports #/algo, #algo, /algo, and browser history)
+function resolveRoute() {
+  if (typeof window === 'undefined') return 'matrix';
+
+  // 1. Check window.location.hash (e.g., #/deflate or #deflate)
+  if (window.location.hash) {
+    const cleanHash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
+    if (VALID_VIEWS.has(cleanHash)) {
+      return cleanHash;
+    }
+  }
+
+  // 2. Check window.location.pathname for direct Vercel path rewrites (e.g., /deflate)
+  if (window.location.pathname) {
+    const cleanPath = window.location.pathname.replace(/^\/+|\/+$/g, '').trim().toLowerCase();
+    if (VALID_VIEWS.has(cleanPath)) {
+      return cleanPath;
+    }
+  }
+
+  // 3. Fallback default to the data matrix
+  return 'matrix';
+}
+
 export default function App() {
-  const [currentView, setCurrentView] = useState(() => {
-    const hash = window.location.hash.replace('#', '');
-    return hash || 'matrix';
-  });
+  const [currentView, setCurrentView] = useState(() => resolveRoute());
   const [filterCategory, setFilterCategory] = useState('all');
 
   // Real File Preset Selection: 'txt', 'pdf', 'log', 'custom'
@@ -469,19 +493,89 @@ export default function App() {
   const playTimerRef = useRef(null);
   const walkerCurrentNodeRef = useRef(null);
 
-  // Sync hash routing on popstate / hashchange
+  // Universal route synchronizer (handles hashchange, popstate, browser back/forward)
   useEffect(() => {
-    const onHashChange = () => {
-      const hash = window.location.hash.replace('#', '');
-      setCurrentView(hash || 'matrix');
+    const handleRouteChange = () => {
+      const target = resolveRoute();
+      setCurrentView(target);
+
+      // Cancel any ongoing voice synthesis when switching routes
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+
+      // Stop all background auto-builders across all studios
+      isAutoBuildingRef.current = false;
+      setIsAutoBuilding(false);
+      lzIsAutoBuildingRef.current = false;
+      setLzIsAutoBuilding(false);
+      deflateIsAutoBuildingRef.current = false;
+      setDeflateIsAutoBuilding(false);
+
+      if (activeSpeechTimeoutRef.current) {
+        clearTimeout(activeSpeechTimeoutRef.current);
+        activeSpeechTimeoutRef.current = null;
+      }
+      if (lzSpeechTimeoutRef.current) {
+        clearTimeout(lzSpeechTimeoutRef.current);
+        lzSpeechTimeoutRef.current = null;
+      }
+      if (deflateSpeechTimeoutRef.current) {
+        clearTimeout(deflateSpeechTimeoutRef.current);
+        deflateSpeechTimeoutRef.current = null;
+      }
     };
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+
+    window.addEventListener('hashchange', handleRouteChange);
+    window.addEventListener('popstate', handleRouteChange);
+
+    // Initial check to ensure canonical hash if path or hash is used
+    const current = resolveRoute();
+    if (current !== 'matrix' && !window.location.hash.includes(current)) {
+      window.location.hash = `#${current}`;
+    }
+
+    return () => {
+      window.removeEventListener('hashchange', handleRouteChange);
+      window.removeEventListener('popstate', handleRouteChange);
+    };
   }, []);
 
   const navigateTo = (viewId) => {
-    window.location.hash = viewId;
-    setCurrentView(viewId);
+    const target = VALID_VIEWS.has(viewId) ? viewId : 'matrix';
+
+    // 1. Immediately cancel active speech
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+
+    // 2. Stop all active auto-builders and speech safety timeouts
+    isAutoBuildingRef.current = false;
+    setIsAutoBuilding(false);
+    lzIsAutoBuildingRef.current = false;
+    setLzIsAutoBuilding(false);
+    deflateIsAutoBuildingRef.current = false;
+    setDeflateIsAutoBuilding(false);
+
+    if (activeSpeechTimeoutRef.current) {
+      clearTimeout(activeSpeechTimeoutRef.current);
+      activeSpeechTimeoutRef.current = null;
+    }
+    if (lzSpeechTimeoutRef.current) {
+      clearTimeout(lzSpeechTimeoutRef.current);
+      lzSpeechTimeoutRef.current = null;
+    }
+    if (deflateSpeechTimeoutRef.current) {
+      clearTimeout(deflateSpeechTimeoutRef.current);
+      deflateSpeechTimeoutRef.current = null;
+    }
+
+    // 3. Update URL hash
+    window.location.hash = target === 'matrix' ? '#matrix' : `#${target}`;
+    setCurrentView(target);
+
+    // 4. Smoothly scroll to the top of the newly mounted studio
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // Switch file preset
@@ -1912,9 +2006,17 @@ export default function App() {
         <div className="studio-container">
           <div className="studio-header">
             <div>
-              <span className="section-heading-badge lossless">
-                {currentView === 'huffman' ? 'ALGORITHM #2: OPTIMAL PREFIX CODE' : 'ALGORITHM #1: FOUNDATION'}
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <button 
+                  className="studio-breadcrumb" 
+                  onClick={() => navigateTo('matrix')} 
+                  style={{ margin: 0, padding: '4px 10px', fontSize: '0.78rem' }}>
+                  <ArrowLeft size={14} /> All Algorithms
+                </button>
+                <span className="section-heading-badge lossless">
+                  {currentView === 'huffman' ? 'ALGORITHM #2: OPTIMAL PREFIX CODE' : 'ALGORITHM #1: FOUNDATION'}
+                </span>
+              </div>
               <h2 className="matrix-hero-title" style={{ marginTop: '8px', fontSize: '2rem' }}>
                 {currentView === 'huffman' ? (
                   <>Canonical Huffman: <span>Animated Tree Builder & Real Data Matrix</span></>
@@ -3018,15 +3120,23 @@ export default function App() {
         <div className="studio-container">
           <div className="studio-header">
             <div>
-              <span className="section-heading-badge lossless">
-                ALGORITHM #7: SLIDING WINDOW DICTIONARY
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <button 
+                  className="studio-breadcrumb" 
+                  onClick={() => navigateTo('matrix')} 
+                  style={{ margin: 0, padding: '4px 10px', fontSize: '0.78rem' }}>
+                  <ArrowLeft size={14} /> All Algorithms
+                </button>
+                <span className="section-heading-badge lossless">
+                  ALGORITHM #7: SLIDING WINDOW DICTIONARY
+                </span>
+              </div>
               <h2 className="matrix-hero-title" style={{ marginTop: '8px', fontSize: '2rem' }}>
                 LZ77 (Lempel-Ziv 1977): <span>Animated Sliding Window & Real Data Matrix</span>
               </h2>
             </div>
             <div className="cxx-badge">
-              <span className="cxx-icon">C++17</span>
+              <span className="cxx-icon">C++20</span>
               <span>lossless/lz77/lz77.hpp</span>
             </div>
           </div>
@@ -3856,15 +3966,23 @@ export default function App() {
         <div className="studio-container">
           <div className="studio-header">
             <div>
-              <span className="section-heading-badge lossless">
-                ALGORITHM #8: COMPOUND HYBRID ARCHITECTURE (RFC 1951)
-              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <button 
+                  className="studio-breadcrumb" 
+                  onClick={() => navigateTo('matrix')} 
+                  style={{ margin: 0, padding: '4px 10px', fontSize: '0.78rem' }}>
+                  <ArrowLeft size={14} /> All Algorithms
+                </button>
+                <span className="section-heading-badge lossless">
+                  ALGORITHM #8: COMPOUND HYBRID ARCHITECTURE (RFC 1951)
+                </span>
+              </div>
               <h2 className="matrix-hero-title" style={{ marginTop: '8px', fontSize: '2rem' }}>
                 DEFLATE: <span>LZ77 Deduplication + Dual Canonical Huffman Coding</span>
               </h2>
             </div>
             <div className="cxx-badge">
-              <span className="cxx-icon">C++17</span>
+              <span className="cxx-icon">C++20</span>
               <span>lossless/deflate/deflate.hpp</span>
             </div>
           </div>

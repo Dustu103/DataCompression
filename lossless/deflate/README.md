@@ -1,6 +1,6 @@
 # DEFLATE Compound Architecture: LZ77 + Canonical Huffman
 
-A complete, zero-dependency C++17 implementation of the **DEFLATE (RFC 1951)** compound data compression architecture combining **LZ77 Sliding Window Dictionary Matching** with **Dual Canonical Huffman Entropy Coding**, complete with roundtrip verification and stage-by-stage size reduction calculations.
+A complete, zero-dependency Modern C++20 implementation of the **DEFLATE (RFC 1951)** compound data compression architecture combining **LZ77 Sliding Window Dictionary Matching** with **Dual Canonical Huffman Entropy Coding**, complete with roundtrip verification and stage-by-stage size reduction calculations.
 
 ---
 
