@@ -1,0 +1,29 @@
+# Node / Frontend
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# C++ Build Artifacts
+*.exe
+*.o
+*.obj
+*.out
+*.dll
+*.so
+*.dylib
+build/
+bin/
+*.pdb
+*.ilk
+
+# Editor & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
