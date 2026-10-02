@@ -105,6 +105,9 @@ button {
 
 .filter-pills {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
   background: rgba(0, 0, 0, 0.4);
   padding: 4px;
   border-radius: var(--radius-sm);
@@ -112,15 +115,21 @@ button {
 }
 
 .filter-btn {
-  padding: 6px 14px;
+  padding: 6px 13px;
   border-radius: 6px;
-  font-size: 0.8rem;
+  font-size: 0.78rem;
   font-weight: 600;
   background: transparent;
   color: var(--text-secondary);
   border: none;
   cursor: pointer;
+  white-space: nowrap;
   transition: all 0.2s ease;
+}
+
+.filter-btn:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .filter-btn.active {
@@ -163,6 +172,45 @@ button {
   padding: 0 40px 60px;
 }
 
+.section-heading-wrap {
+  margin: 40px 0 20px;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 16px;
+}
+
+.section-heading-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.section-heading-title {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 6px;
+  letter-spacing: -0.01em;
+}
+
+.section-heading-desc {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+  max-width: 950px;
+}
+
+.section-algo-count {
+  font-size: 0.76rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
 .section-heading {
   display: flex;
   align-items: center;
@@ -179,6 +227,37 @@ button {
   padding: 3px 9px;
   border-radius: 4px;
   text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.section-heading-badge.redundancy {
+  background: rgba(0, 242, 254, 0.12);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(0, 242, 254, 0.35);
+}
+
+.section-heading-badge.entropy {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.35);
+}
+
+.section-heading-badge.compound {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--accent-emerald);
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.section-heading-badge.transforms {
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--accent-amber);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.section-heading-badge.media {
+  background: rgba(244, 63, 94, 0.12);
+  color: #fda4af;
+  border: 1px solid rgba(244, 63, 94, 0.35);
 }
 
 .section-heading-badge.lossless {
@@ -225,6 +304,12 @@ button {
   box-shadow: 0 0 25px rgba(16, 185, 129, 0.15);
 }
 
+.algo-card.next-in-line {
+  border-color: rgba(0, 242, 254, 0.55);
+  box-shadow: 0 0 25px rgba(0, 242, 254, 0.2);
+  background: linear-gradient(180deg, rgba(0, 242, 254, 0.04) 0%, rgba(13, 20, 36, 0.95) 100%);
+}
+
 .card-top {
   margin-bottom: 16px;
 }
@@ -257,6 +342,20 @@ button {
   background: rgba(16, 185, 129, 0.2);
   color: var(--accent-emerald);
   border: 1px solid var(--accent-emerald);
+}
+
+.status-chip.next {
+  background: rgba(0, 242, 254, 0.16);
+  color: var(--accent-cyan);
+  border: 1px solid var(--accent-cyan);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  animation: pulseNext 2.5s infinite ease-in-out;
+}
+
+@keyframes pulseNext {
+  0%, 100% { box-shadow: 0 0 0 rgba(0, 242, 254, 0); }
+  50% { box-shadow: 0 0 12px rgba(0, 242, 254, 0.45); }
 }
 
 .status-chip.pending {
@@ -376,6 +475,27 @@ button {
 .btn-open-lab:hover {
   filter: brightness(1.15);
   box-shadow: 0 0 16px rgba(0, 242, 254, 0.4);
+}
+
+.btn-next {
+  background: linear-gradient(135deg, rgba(0, 242, 254, 0.2), rgba(79, 172, 254, 0.25));
+  border: 1px solid var(--accent-cyan);
+  color: var(--accent-cyan);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.btn-next:hover {
+  background: linear-gradient(135deg, rgba(0, 242, 254, 0.35), rgba(79, 172, 254, 0.45));
+  box-shadow: 0 0 14px rgba(0, 242, 254, 0.35);
+  transform: translateY(-1px);
 }
 
 .btn-pending {

@@ -209,39 +209,62 @@ const mapDistanceToRfc1951 = (dist) => {
   };
 };
 
-// Master Algorithm Registry
+// Master Section Hierarchy (5 Architectural Pillars)
+const SECTIONS_CONFIG = [
+  {
+    id: 'redundancy',
+    title: '1. Redundancy Removal',
+    shortName: 'Redundancy',
+    badgeText: 'REDUNDANCY REMOVAL',
+    badgeClass: 'redundancy',
+    subtitle: 'Deduplication, Run Folding & History Window Referencing',
+    desc: 'Identifies and replaces duplicate substrings or repeating byte runs with backward reference pointers or dynamic dictionary codes.'
+  },
+  {
+    id: 'entropy',
+    title: '2. Entropy Coding',
+    shortName: 'Entropy',
+    badgeText: 'ENTROPY CODING',
+    badgeClass: 'entropy',
+    subtitle: 'Probability Modeling & Mathematical Bound H(X) = -∑ P(x) log₂ P(x)',
+    desc: 'Assigns variable-length bit codes or fractional intervals proportional to symbol frequencies to approach the theoretical Shannon limit.'
+  },
+  {
+    id: 'compound',
+    title: '3. Modern Lossless',
+    shortName: 'Modern Lossless',
+    badgeText: 'MODERN COMPOUND LOSSLESS',
+    badgeClass: 'compound',
+    subtitle: 'Multi-Stage Production Pipelines (Deduplication + Entropy + Context)',
+    desc: 'Real-world production engines combining sliding-window deduplication, multi-order context modeling, and high-throughput entropy coders.'
+  },
+  {
+    id: 'transforms',
+    title: '4. Image Compression & Transforms',
+    shortName: 'Image Transforms',
+    badgeText: 'IMAGE COMPRESSION & TRANSFORMS',
+    badgeClass: 'transforms',
+    subtitle: 'Frequency Spectral Decompositions & Perceptual Quantization',
+    desc: 'Transforms spatial pixel grids into frequency spectra, discarding high-frequency coefficients imperceptible to human visual perception.'
+  },
+  {
+    id: 'media',
+    title: '5. Modern Image & Video',
+    shortName: 'Modern Media',
+    badgeText: 'MODERN IMAGE & VIDEO',
+    badgeClass: 'media',
+    subtitle: 'Intra-Frame Directional Prediction & Inter-Frame Motion Compensation',
+    desc: 'Cutting-edge media standards utilizing spatial intra-prediction, temporal motion vectors, and context-adaptive binary arithmetic coding.'
+  }
+];
+
+// Master Algorithm Registry (21 Algorithms Across 5 Architectural Sections)
 const ALGORITHMS_CATALOG = [
-  {
-    id: 'prefix-tree',
-    name: 'Binary Prefix Tree & Kraft Rule',
-    category: 'lossless',
-    type: 'Foundation & Code Trees',
-    status: 'ready',
-    formula: 'K = ∑ 2^-l_i ≤ 1',
-    ratio: '1.5:1 – 4:1',
-    desc: 'The mathematical bedrock of entropy coding. Every symbol lives strictly at a leaf node, guaranteeing instantaneous decoding with zero lookahead or delimiters.',
-    pros: ['Instantaneous unambiguous decoding', 'Optimal tree representation', 'Zero delimiter bits'],
-    flaws: ['Single-bit flip causes cascade error', 'Tree header overhead on short files'],
-    whenToUse: 'Instantaneous streaming protocols (UTF-8, protobuf varints) and validating code sets with Kraft inequality.',
-    whenNotToUse: 'Large dynamic dictionaries where pointer-based nodes cause cache-miss overhead.'
-  },
-  {
-    id: 'huffman',
-    name: 'Canonical Huffman Coding',
-    category: 'lossless',
-    type: 'Optimal Prefix Code',
-    status: 'ready',
-    formula: 'L̄ = ∑ p_i l_i ≥ H(X)',
-    ratio: '1.5:1 – 4.5:1',
-    desc: 'Published in 1952 by David Huffman. Bottom-up min-heap builds provably optimal prefix trees. Canonical form transmits lengths only, discarding tree pointers.',
-    pros: ['Provably optimal prefix code', 'Canonical header transmits lengths only', 'Fast table-driven decoding'],
-    flaws: ['1-bit integer quantization barrier (cannot assign fractional bits)', 'Two-pass frequency scan'],
-    whenToUse: 'Compound pipelines (DEFLATE / JPEG / PNG after LZ77/DCT) and moderate probabilities (5%–50%).',
-    whenNotToUse: 'Skewed data (p > 50% wastes bits; use ANS/Arithmetic) and micro-files (< 500B header bloat).'
-  },
+  // SECTION 1: REDUNDANCY REMOVAL
   {
     id: 'rle',
     name: 'Run-Length Encoding (RLE) & PackBits',
+    section: 'redundancy',
     category: 'lossless',
     type: 'Redundancy Coding',
     status: 'pending',
@@ -254,52 +277,11 @@ const ALGORITHMS_CATALOG = [
     whenNotToUse: 'High-entropy or non-repeating data (plain text, compiled binaries, encrypted streams).'
   },
   {
-    id: 'shannon-fano',
-    name: 'Shannon-Fano Coding',
-    category: 'lossless',
-    type: 'Entropy Coding',
-    status: 'pending',
-    formula: 'Top-down Equi-Partitioning',
-    ratio: '1.5:1 – 3.5:1',
-    desc: 'Devised in 1948 by Claude Shannon and Robert Fano. Recursively partitions sorted symbol frequencies into two roughly equal-weight subsets.',
-    pros: ['Clean intuitive recursive top-down logic', 'Historical information-theory milestone'],
-    flaws: ['Sub-optimal prefix trees compared to Huffman min-heap', 'Greedy local splits'],
-    whenToUse: 'Educational demonstrations of top-down recursive entropy coding logic.',
-    whenNotToUse: 'Production compression backends—Huffman is provably superior with equal complexity.'
-  },
-  {
-    id: 'arithmetic',
-    name: 'Arithmetic / Integer Range Coding',
-    category: 'lossless',
-    type: 'Fractional Entropy',
-    status: 'pending',
-    formula: '[L, R) ← [L + (R-L)P_low, L + (R-L)P_high)',
-    ratio: '1.8:1 – 5:1',
-    desc: 'Encodes an entire message into a single fractional number in [0, 1). Breaks the 1-bit-per-symbol barrier of Huffman by assigning true fractional bits.',
-    pros: ['Achieves true Shannon entropy H(X)', 'Optimal for highly skewed probabilities (p > 0.5)'],
-    flaws: ['Computationally heavy bit-shifts & multiplications', 'Integer register underflow'],
-    whenToUse: 'Highly skewed symbol probabilities (p > 90%) where fractional bits are required (H.264/CABAC).',
-    whenNotToUse: 'High-throughput pipelines where multi-precision math and register normalization limit GB/s speed.'
-  },
-  {
-    id: 'ans',
-    name: 'Asymmetric Numeral Systems (ANS / rANS)',
-    category: 'lossless',
-    type: 'State-of-the-Art Entropy',
-    status: 'pending',
-    formula: 'x\' = C(s, x) = ⌊x / l_s⌋ · M + b_s + (x mod l_s)',
-    ratio: '2:1 – 5:1',
-    desc: 'Created by Jarosław Duda in 2006. Powers modern Zstandard (Meta) and Apple LZFSE. Delivers the compression density of Arithmetic coding at the speed of Huffman.',
-    pros: ['State-of-the-art compression speed (GB/s)', 'Exact fractional entropy precision'],
-    flaws: ['Reverses symbol order (LIFO stack behavior)', 'Complex state table normalization'],
-    whenToUse: 'Modern production pipelines (Zstd, LZFSE) demanding Arithmetic density at Huffman speed.',
-    whenNotToUse: 'Ultra-simple microcontrollers where state inversion (LIFO reverse decoding) complicates buffers.'
-  },
-  {
     id: 'lz77',
     name: 'LZ77 (Sliding Window)',
+    section: 'redundancy',
     category: 'lossless',
-    type: 'Dictionary Coding',
+    type: 'Sliding Window History',
     status: 'ready',
     formula: 'Tokens: (distance, length, next_char)',
     ratio: '2:1 – 10:1',
@@ -310,24 +292,26 @@ const ALGORITHMS_CATALOG = [
     whenNotToUse: 'Pre-compressed, encrypted, or random binary files where sliding search yields zero matches.'
   },
   {
-    id: 'deflate',
-    name: 'DEFLATE (LZ77 + Canonical Huffman)',
+    id: 'lz78',
+    name: 'LZ78 (Explicit Dictionary Tree)',
+    section: 'redundancy',
     category: 'lossless',
-    type: 'Compound Hybrid Architecture',
-    status: 'ready',
-    formula: 'Stream: LZ77 Tokens → Dual Canonical Huffman Trees',
-    ratio: '2.5:1 – 12:1',
-    desc: 'Created by Phil Katz in 1993 for PKZIP (RFC 1951). The most widely deployed compression format in human history (ZIP, GZIP, PNG, HTTP/1.1, Git zlib). Combines LZ77 pattern deduplication with dual Canonical Huffman entropy coding.',
-    pros: ['Eliminates the LZ77 triplet expansion penalty completely', 'Unsurpassed universal compatibility across all operating systems', 'Zero patent royalties'],
-    flaws: ['Two-stage processing latency', 'Beaten in compression speed and density by modern Zstandard (Zstd)'],
-    whenToUse: 'Universal cross-platform interchange (ZIP, GZIP, PNG, PDF flate, Git packfiles, HTTP web assets).',
-    whenNotToUse: 'Ultra-high-throughput in-memory caching requiring gigabytes-per-second memory bandwidth (use LZ4 or Zstd).'
+    type: 'Tree-Structured Dictionary',
+    status: 'pending',
+    formula: 'Tokens: (dict_index, next_char)',
+    ratio: '2:1 – 6:1',
+    desc: 'Published in 1978 by Lempel & Ziv. Employs a growing trie dictionary of previously emitted phrases, referencing index pairs with explicit trailing characters.',
+    pros: ['No sliding window distance limit', 'Unbounded phrase memory', 'Zero static tree header transmitted'],
+    flaws: ['Explicit tree pointer overhead', 'Memory grows rapidly without pruning'],
+    whenToUse: 'Historical foundations of dictionary coding and text deduplication analysis.',
+    whenNotToUse: 'Modern production pipelines where LZW or LZ77 provide simpler zero-overhead streaming.'
   },
   {
     id: 'lzw',
     name: 'LZW (Lempel-Ziv-Welch) Dictionary',
+    section: 'redundancy',
     category: 'lossless',
-    type: 'Dynamic Dictionary',
+    type: 'Dynamic Lock-Step Dictionary',
     status: 'ready',
     formula: 'dict[P + c] = next_code++; Output(P)',
     ratio: '2:1 – 5:1',
@@ -345,24 +329,166 @@ const ALGORITHMS_CATALOG = [
     whenToUse: 'Palette-indexed 2D graphics (GIF), TIFF prepress imaging, legacy Unix compress (.Z), and deterministic embedded targets.',
     whenNotToUse: 'Modern web text transmission where DEFLATE or Zstandard beats LZW by 25–40% in compression ratio.'
   },
+
+  // SECTION 2: ENTROPY CODING
   {
-    id: 'bwt-mtf',
-    name: 'Burrows-Wheeler Transform (BWT) & MTF',
+    id: 'prefix-tree',
+    name: 'Binary Prefix Tree & Kraft Rule',
+    section: 'entropy',
     category: 'lossless',
-    type: 'Reversible Transform',
-    status: 'pending',
-    formula: 'L = BWT(S) via Sorted Cyclic Shifts',
-    ratio: '2.5:1 – 8:1',
-    desc: 'Invertible permutation that groups identical characters together without destroying information. Followed by Move-To-Front (MTF) to create run-length clusters (bzip2).',
-    pros: ['Incredible clustering for text and source code', 'Reversible without transmitting rotations'],
-    flaws: ['Block-based memory requirement', 'Slow sorting without Suffix Array (SA-IS)'],
-    whenToUse: 'Large blocks of text, source code, or genome data with repeated context patterns (bzip2).',
-    whenNotToUse: 'Low-latency streaming or small buffers (< 64KB) where sorting cyclic shifts adds high latency.'
+    type: 'Foundation & Code Trees',
+    status: 'ready',
+    formula: 'K = ∑ 2^-l_i ≤ 1',
+    ratio: '1.5:1 – 4:1',
+    desc: 'The mathematical bedrock of entropy coding. Every symbol lives strictly at a leaf node, guaranteeing instantaneous decoding with zero lookahead or delimiters.',
+    pros: ['Instantaneous unambiguous decoding', 'Optimal tree representation', 'Zero delimiter bits'],
+    flaws: ['Single-bit flip causes cascade error', 'Tree header overhead on short files'],
+    whenToUse: 'Instantaneous streaming protocols (UTF-8, protobuf varints) and validating code sets with Kraft inequality.',
+    whenNotToUse: 'Large dynamic dictionaries where pointer-based nodes cause cache-miss overhead.'
   },
-  // Lossy Section
+  {
+    id: 'shannon-fano',
+    name: 'Shannon-Fano Coding',
+    section: 'entropy',
+    category: 'lossless',
+    type: 'Top-Down Prefix Code',
+    status: 'pending',
+    formula: 'Top-down Equi-Partitioning',
+    ratio: '1.5:1 – 3.5:1',
+    desc: 'Devised in 1948 by Claude Shannon and Robert Fano. Recursively partitions sorted symbol frequencies into two roughly equal-weight subsets.',
+    pros: ['Clean intuitive recursive top-down logic', 'Historical information-theory milestone'],
+    flaws: ['Sub-optimal prefix trees compared to Huffman min-heap', 'Greedy local splits'],
+    whenToUse: 'Educational demonstrations of top-down recursive entropy coding logic.',
+    whenNotToUse: 'Production compression backends—Huffman is provably superior with equal complexity.'
+  },
+  {
+    id: 'huffman',
+    name: 'Canonical Huffman Coding',
+    section: 'entropy',
+    category: 'lossless',
+    type: 'Optimal Prefix Code',
+    status: 'ready',
+    formula: 'L̄ = ∑ p_i l_i ≥ H(X)',
+    ratio: '1.5:1 – 4.5:1',
+    desc: 'Published in 1952 by David Huffman. Bottom-up min-heap builds provably optimal prefix trees. Canonical form transmits lengths only, discarding tree pointers.',
+    pros: ['Provably optimal prefix code', 'Canonical header transmits lengths only', 'Fast table-driven decoding'],
+    flaws: ['1-bit integer quantization barrier (cannot assign fractional bits)', 'Two-pass frequency scan'],
+    whenToUse: 'Compound pipelines (DEFLATE / JPEG / PNG after LZ77/DCT) and moderate probabilities (5%–50%).',
+    whenNotToUse: 'Skewed data (p > 50% wastes bits; use ANS/Arithmetic) and micro-files (< 500B header bloat).'
+  },
+  {
+    id: 'arithmetic',
+    name: 'Arithmetic Coding / Range Coding',
+    section: 'entropy',
+    category: 'lossless',
+    type: 'Fractional Entropy',
+    status: 'next',
+    formula: '[L, R) ← [L + (R-L)P_low, L + (R-L)P_high)',
+    ratio: '1.8:1 – 5:1',
+    desc: 'Encodes an entire message into a single high-precision fractional sub-interval [0, 1). Breaks the 1-bit-per-symbol integer floor of Huffman by allocating true fractional bits, achieving true Shannon entropy.',
+    pros: ['Achieves true Shannon entropy H(X)', 'Optimal for highly skewed probabilities (p > 0.5) where Huffman wastes 1 bit', 'Supports adaptive online frequency updates'],
+    flaws: ['Computationally heavier bit shifts and multiplications', 'Integer register underflow normalization required'],
+    whenToUse: 'Highly skewed symbol probabilities (p > 90%) where fractional bits are required (H.264/CABAC, JPEG 2000).',
+    whenNotToUse: 'Ultra-high-throughput pipelines where multi-precision math and register normalization limit GB/s speed.'
+  },
+  {
+    id: 'ans',
+    name: 'Asymmetric Numeral Systems (ANS / rANS)',
+    section: 'entropy',
+    category: 'lossless',
+    type: 'State-of-the-Art Entropy',
+    status: 'pending',
+    formula: 'x\' = C(s, x) = ⌊x / l_s⌋ · M + b_s + (x mod l_s)',
+    ratio: '2:1 – 5:1',
+    desc: 'Created by Jarosław Duda in 2006. Powers modern Zstandard (Meta) and Apple LZFSE. Delivers the exact compression density of Arithmetic coding at the multi-gigabyte-per-second speed of Huffman table lookups.',
+    pros: ['State-of-the-art compression speed (GB/s)', 'Exact fractional entropy precision without multiplication', 'Powers modern industry codecs (Zstd, LZFSE)'],
+    flaws: ['Reverses symbol order (LIFO stack behavior)', 'Complex state table normalization'],
+    whenToUse: 'Modern production pipelines (Zstd, LZFSE) demanding Arithmetic density at Huffman speed.',
+    whenNotToUse: 'Ultra-simple microcontrollers where state inversion (LIFO reverse decoding) complicates buffers.'
+  },
+
+  // SECTION 3: MODERN LOSSLESS
+  {
+    id: 'deflate',
+    name: 'DEFLATE (LZ77 + Canonical Huffman)',
+    section: 'compound',
+    category: 'lossless',
+    type: 'Compound Hybrid Architecture',
+    status: 'ready',
+    formula: 'Stream: LZ77 Tokens → Dual Canonical Huffman Trees',
+    ratio: '2.5:1 – 12:1',
+    desc: 'Created by Phil Katz in 1993 for PKZIP (RFC 1951). The most widely deployed compression format in human history (ZIP, GZIP, PNG, HTTP/1.1, Git zlib). Combines LZ77 pattern deduplication with dual Canonical Huffman entropy coding.',
+    pros: ['Eliminates the LZ77 triplet expansion penalty completely', 'Unsurpassed universal compatibility across all operating systems', 'Zero patent royalties'],
+    flaws: ['Two-stage processing latency', 'Beaten in compression speed and density by modern Zstandard (Zstd)'],
+    whenToUse: 'Universal cross-platform interchange (ZIP, GZIP, PNG, PDF flate, Git packfiles, HTTP web assets).',
+    whenNotToUse: 'Ultra-high-throughput in-memory caching requiring gigabytes-per-second memory bandwidth (use LZ4 or Zstd).'
+  },
+  {
+    id: 'brotli',
+    name: 'Brotli (Google Web Standard)',
+    section: 'compound',
+    category: 'lossless',
+    type: 'Compound 2nd-Order Context',
+    status: 'pending',
+    formula: 'WBITS: 10..24 | 120KB Static Web Dictionary',
+    ratio: '3:1 – 15:1',
+    desc: 'Created by Google (RFC 7932) specifically for web transmission. Combines 2nd-order context modeling, LZ77, Huffman, and a massive 120KB static dictionary of common web substrings.',
+    pros: ['15–25% smaller web asset payloads than GZIP', 'Huge 120KB built-in dictionary for HTML/JS/CSS', 'Native browser HTTP content-encoding support'],
+    flaws: ['High compression levels (10-11) are CPU intensive', 'Complex specification'],
+    whenToUse: 'Serving static web assets (HTML, CSS, JS, SVG, JSON) over HTTPS.',
+    whenNotToUse: 'Dynamic real-time compression on high-concurrency servers where CPU cycles are constrained.'
+  },
+  {
+    id: 'zstd',
+    name: 'Zstandard (Meta Zstd: tANS + Repcodes)',
+    section: 'compound',
+    category: 'lossless',
+    type: 'Modern High-Throughput Lossless',
+    status: 'pending',
+    formula: 'FSE (Finite State Entropy) + Repcode History',
+    ratio: '3:1 – 15:1 (GB/s Speed)',
+    desc: 'Created by Yann Collet at Meta. Replaces Huffman with Finite State Entropy (FSE/tANS) and features ultra-fast repcode matching, scaling from ultra-fast realtime to maximum compression ratios.',
+    pros: ['Scales smoothly from ultra-fast (Level 1) to ultra-dense (Level 22)', 'Gigabytes-per-second decompression speed', 'Trained custom dictionary support'],
+    flaws: ['More complex codebase than classic zlib', 'Larger memory footprint at high compression levels'],
+    whenToUse: 'Real-time database storage (RocksDB, Kafka), Linux kernels, game assets, and modern cloud RPCs.',
+    whenNotToUse: 'Legacy microcontrollers with severe memory constraints (< 64KB RAM).'
+  },
+  {
+    id: 'lzma',
+    name: 'LZMA / LZMA2 (7-Zip / XZ)',
+    section: 'compound',
+    category: 'lossless',
+    type: 'Markov Chain + Range Coder',
+    status: 'pending',
+    formula: 'Markov Chain (Bit-Level Contexts) + Range Coder',
+    ratio: '4:1 – 20:1',
+    desc: 'Created by Igor Pavlov for 7-Zip. Combines a huge sliding dictionary (up to 1GB+) with complex Markov chain state transitions feeding directly into a binary Range Coder.',
+    pros: ['Maximum achievable compression ratio for binary installers and OS images', 'Huge sliding window support up to 1GB+'],
+    flaws: ['Very slow compression speed and high encoder RAM consumption', 'High decompression latency'],
+    whenToUse: 'Software distribution packages, OS installation images (.xz, .7z), and cold archival storage.',
+    whenNotToUse: 'Real-time communication, HTTP stream responses, or interactive game loading.'
+  },
+
+  // SECTION 4: IMAGE COMPRESSION & TRANSFORMS
+  {
+    id: 'dct-jpeg',
+    name: '8×8 2D DCT (Discrete Cosine Transform)',
+    section: 'transforms',
+    category: 'lossy',
+    type: 'Orthogonal Transform Coding',
+    status: 'pending',
+    formula: 'F(u,v) = ¼ C(u)C(v) ∑∑ f(x,y) cos(...)',
+    ratio: '10:1 – 50:1',
+    desc: 'Transforms 8×8 pixel blocks from spatial domain to frequency domain. Packs image energy into low-frequency DC coefficients and allows psychovisual quantizing.',
+    pros: ['Massive energy compaction into DC/low-frequency coefficients', 'Tunable quality scale 1-100'],
+    flaws: ['Block boundary artifacts at low bitrates', 'Ringing / Gibbs phenomenon around sharp edges'],
+    whenToUse: 'Continuous-tone photographic images where high spatial frequencies can be discarded.',
+    whenNotToUse: 'Pixel art, high-contrast UI graphics, or text screenshots where 8x8 block blur occurs.'
+  },
   {
     id: 'quantization',
-    name: 'Uniform & Lloyd-Max Scalar Quantization',
+    name: 'Uniform & Lloyd-Max Quantization',
+    section: 'transforms',
     category: 'lossy',
     type: 'Rate-Distortion Theory',
     status: 'pending',
@@ -377,6 +503,7 @@ const ALGORITHMS_CATALOG = [
   {
     id: 'companding',
     name: 'Logarithmic Companding (μ-Law & A-Law G.711)',
+    section: 'transforms',
     category: 'lossy',
     type: 'Perceptual Audio Coding',
     status: 'pending',
@@ -389,18 +516,81 @@ const ALGORITHMS_CATALOG = [
     whenNotToUse: 'High-fidelity multi-channel music or scientific instrumentation requiring linear precision.'
   },
   {
-    id: 'dct-jpeg',
-    name: '8×8 2D DCT & JPEG Quantization Matrix',
+    id: 'jpeg-pipeline',
+    name: 'Full JPEG Baseline Pipeline',
+    section: 'transforms',
     category: 'lossy',
-    type: 'Transform Coding',
+    type: 'Complete Lossy Image Codec',
     status: 'pending',
-    formula: 'F(u,v) = ¼ C(u)C(v) ∑∑ f(x,y) cos(...)',
-    ratio: '10:1 – 50:1',
-    desc: 'Transforms 8×8 pixel blocks from spatial domain to frequency domain. Discards unnoticeable high spatial frequencies along the Zig-Zag scan path.',
-    pros: ['Massive energy compaction into DC/low-frequency coefficients', 'Tunable quality scale 1-100'],
-    flaws: ['Block boundary artifacts at low bitrates', 'Ringing / Gibbs phenomenon around sharp edges'],
-    whenToUse: 'Continuous-tone photographic images where high spatial frequencies can be discarded.',
-    whenNotToUse: 'Pixel art, high-contrast UI graphics, or text screenshots where 8x8 block blur occurs.'
+    formula: 'RGB→YCbCr 4:2:0 → DCT → Quant → Zig-Zag → Huffman',
+    ratio: '10:1 – 40:1',
+    desc: 'End-to-end ISO JPEG standard: color subsampling (YCbCr 4:2:0), block-level 8×8 DCT, perceptual quantization matrix, Zig-Zag serialization, and Huffman entropy packing.',
+    pros: ['Universal standard supported by 100% of image viewers', 'High photographic compression ratio (15:1 to 30:1) with good fidelity'],
+    flaws: ['Severe blocking artifacts at low bitrates', 'Lacks alpha transparency and HDR support'],
+    whenToUse: 'Standard photographic web publishing and legacy camera image capture.',
+    whenNotToUse: 'Graphics with transparent backgrounds, line drawings, or text overlays.'
+  },
+
+  // SECTION 5: MODERN IMAGE & VIDEO
+  {
+    id: 'png',
+    name: 'PNG (Predictive Filter + DEFLATE)',
+    section: 'media',
+    category: 'lossless',
+    type: 'Lossless Raster Standard',
+    status: 'pending',
+    formula: '5 Row Filters (Sub, Up, Avg, Paeth) → DEFLATE',
+    ratio: '2:1 – 10:1',
+    desc: 'W3C standard lossless raster format. Applies 5 row-by-row predictive spatial filters (Sub, Up, Average, Paeth) to drastically lower entropy before DEFLATE byte packing.',
+    pros: ['100% lossless bit-perfect image reproduction', 'Full 8-bit alpha channel transparency', 'Gamma and color profile correction chunks'],
+    flaws: ['Much larger file sizes than modern WebP/AVIF', 'Decompression requires full row filtering passes'],
+    whenToUse: 'Screenshots, line drawings, icons, transparent logos, and graphics requiring bit-exact pixel fidelity.',
+    whenNotToUse: 'High-resolution photographic imagery where lossless file sizes are prohibitively large.'
+  },
+  {
+    id: 'webp',
+    name: 'WebP (VP8 Spatial Prediction / VP8L)',
+    section: 'media',
+    category: 'both',
+    type: 'Modern Web Media Format',
+    status: 'pending',
+    formula: 'Lossy: VP8 + Arithmetic | Lossless: VP8L Color Transform',
+    ratio: '3:1 – 15:1 (26% < PNG)',
+    desc: 'Created by Google. Offers 26% better compression than PNG in lossless mode and 25-34% smaller file sizes than JPEG at equivalent SSIM quality.',
+    pros: ['Unified format supporting both lossy and lossless modes', 'Alpha channel support even in lossy mode', 'Animated WebP replaces bulky GIFs'],
+    flaws: ['Slightly slower encoding than JPEG', 'Not as efficient as newer AVIF at ultra-low bitrates'],
+    whenToUse: 'General web imagery serving responsive images to modern browsers.',
+    whenNotToUse: 'Legacy image archives or desktop print workflows requiring CMYK.'
+  },
+  {
+    id: 'avif',
+    name: 'AVIF (AV1 Still Image File Format)',
+    section: 'media',
+    category: 'both',
+    type: 'Next-Gen Intra Image Codec',
+    status: 'pending',
+    formula: 'AV1 Intra-Frame + Multi-Symbol rANS Entropy',
+    ratio: '5:1 – 30:1 (50% < JPEG)',
+    desc: 'Alliance for Open Media (AOM) royalty-free standard. Uses AV1 intra-frame coding, supporting 12-bit HDR, wide color gamut, and rANS entropy coding.',
+    pros: ['50% smaller than JPEG at equal visual quality', 'Native 10-bit and 12-bit HDR color support', 'Excellent preservation of fine textures without block artifacts'],
+    flaws: ['High CPU encoding complexity', 'Older legacy browser fallbacks required'],
+    whenToUse: 'Next-generation web assets, HDR photography, and high-density mobile displays.',
+    whenNotToUse: 'Real-time thumbnail generation where encoding latency must be sub-10ms.'
+  },
+  {
+    id: 'video-codecs',
+    name: 'Video Codecs: H.264 / HEVC / AV1',
+    section: 'media',
+    category: 'lossy',
+    type: 'Motion-Compensated Video Codec',
+    status: 'pending',
+    formula: 'I/P/B Frames + Motion Vectors + CABAC / CDF',
+    ratio: '50:1 – 300:1',
+    desc: 'Exploits temporal correlation between consecutive frames using block-based motion estimation, residual transform, and context-adaptive binary arithmetic coding (CABAC).',
+    pros: ['Phenomenal 100:1 to 300:1 compression ratios', 'Hardware-accelerated decoding on virtually every modern GPU/phone'],
+    flaws: ['Enormous encoder computational complexity', 'Inter-frame dependencies mean lost frames cause macroblock glitching'],
+    whenToUse: 'Streaming video (YouTube, Netflix), real-time video conferencing (WebRTC), and CCTV recording.',
+    whenNotToUse: 'Frame-by-frame archival editing where every frame must be independently random-accessible.'
   }
 ];
 
@@ -2097,9 +2287,9 @@ export default function App() {
     return rows;
   }
 
-  const filteredAlgos = useMemo(() => {
-    if (filterCategory === 'all') return ALGORITHMS_CATALOG;
-    return ALGORITHMS_CATALOG.filter(a => a.category === filterCategory);
+  const activeSections = useMemo(() => {
+    if (filterCategory === 'all') return SECTIONS_CONFIG;
+    return SECTIONS_CONFIG.filter(s => s.id === filterCategory);
   }, [filterCategory]);
 
   return (
@@ -2127,183 +2317,134 @@ export default function App() {
               <button 
                 className={`filter-btn ${filterCategory === 'all' ? 'active' : ''}`}
                 onClick={() => setFilterCategory('all')}>
-                All (13)
+                All ({ALGORITHMS_CATALOG.length})
               </button>
-              <button 
-                className={`filter-btn ${filterCategory === 'lossless' ? 'active' : ''}`}
-                onClick={() => setFilterCategory('lossless')}>
-                Lossless (10)
-              </button>
-              <button 
-                className={`filter-btn ${filterCategory === 'lossy' ? 'active' : ''}`}
-                onClick={() => setFilterCategory('lossy')}>
-                Lossy (3)
-              </button>
+              {SECTIONS_CONFIG.map(sec => {
+                const count = ALGORITHMS_CATALOG.filter(a => a.section === sec.id).length;
+                return (
+                  <button 
+                    key={sec.id}
+                    className={`filter-btn ${filterCategory === sec.id ? 'active' : ''}`}
+                    onClick={() => setFilterCategory(sec.id)}>
+                    {sec.shortName} ({count})
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
       </header>
 
       {/* =========================================================================
-          VIEW 1: FRONT PAGE DATA MATRIX CARDS
+          VIEW 1: FRONT PAGE DATA MATRIX CARDS (5 ARCHITECTURAL TIERS)
           ========================================================================= */}
       {currentView === 'matrix' && (
         <div className="matrix-dashboard">
           <div className="matrix-hero">
             <h2 className="matrix-hero-title">
-              Compression Algorithms <span>Data Matrix & Practice Lab</span>
+              Compression Algorithms <span>Architectural Landscape & Practice Lab</span>
             </h2>
             <p className="matrix-hero-desc">
-              Master every compression algorithm from mathematical theory to real binary file bytes.
-              Click any active card below to immediately enter its dedicated studio, or switch algorithms 
-              seamlessly without reloading the page.
+              Master the full data compression continuum across 5 foundational layers: from basic redundancy pruning 
+              to fractional entropy, modern compound pipelines, perceptual frequency transforms, and next-gen video codecs.
+              Click any active studio to enter its interactive workspace.
             </p>
           </div>
 
           <div className="matrix-grid-container">
-            {/* Lossless Section */}
-            {(filterCategory === 'all' || filterCategory === 'lossless') && (
-              <>
-                <div className="section-heading">
-                  <span className="section-heading-badge lossless">LOSSLESS COMPRESSION</span>
-                  <span>Exact Bit-Level Invertibility (0% Distortion)</span>
-                </div>
-                <div className="cards-grid">
-                  {filteredAlgos.filter(a => a.category === 'lossless').map(algo => (
-                    <div 
-                      key={algo.id} 
-                      className={`algo-card ${algo.status === 'ready' ? 'active-lab' : ''}`}>
-                      <div className="card-top">
-                        <div className="card-badges-row">
-                          <span className="algo-type-tag">{algo.type}</span>
-                          <span className={`status-chip ${algo.status}`}>
-                            {algo.status === 'ready' ? '● Active Studio' : 'Awaiting Your Order'}
-                          </span>
-                        </div>
-                        <h3 className="card-title">{algo.name}</h3>
-                        <p className="card-desc">{algo.desc}</p>
-                        
-                        <div className="card-formula-box">
-                          <code>{algo.formula}</code>
-                        </div>
+            {activeSections.map((sec, secIdx) => {
+              const secAlgos = ALGORITHMS_CATALOG.filter(a => a.section === sec.id);
+              if (secAlgos.length === 0) return null;
+              const readyCount = secAlgos.filter(a => a.status === 'ready').length;
 
-                        <div className="card-pros-flaws">
-                          <div className="pf-row pro">
-                            <ShieldCheck size={14} style={{ flexShrink: 0, marginTop: '2px' }} />
-                            <span><strong>Pros:</strong> {algo.pros[0]}</span>
-                          </div>
-                          <div className="pf-row flaw">
-                            <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '2px' }} />
-                            <span><strong>Flaws:</strong> {algo.flaws[0]}</span>
-                          </div>
-                        </div>
-
-                        <div className="card-decision-preview">
-                          <div className="decision-pill use">
-                            <CheckCircle2 size={13} style={{ flexShrink: 0, marginTop: '2px' }} />
-                            <span><strong>Use for:</strong> {algo.whenToUse}</span>
-                          </div>
-                          <div className="decision-pill avoid">
-                            <XCircle size={13} style={{ flexShrink: 0, marginTop: '2px' }} />
-                            <span><strong>Avoid if:</strong> {algo.whenNotToUse}</span>
-                          </div>
-                        </div>
+              return (
+                <div key={sec.id} className="section-block" style={{ marginTop: secIdx > 0 && filterCategory === 'all' ? '52px' : '0' }}>
+                  <div className="section-heading-wrap">
+                    <div className="section-heading-top">
+                      <div className="section-heading-title">
+                        <span className={`section-heading-badge ${sec.badgeClass}`}>{sec.badgeText}</span>
+                        <span>{sec.title}</span>
                       </div>
-
-                      <div className="card-footer">
-                        <div>
-                          <div className="ratio-label">Typical Ratio</div>
-                          <div className="ratio-val">{algo.ratio}</div>
-                        </div>
-                        {algo.status === 'ready' ? (
-                          <button 
-                            className="btn-open-lab" 
-                            onClick={() => navigateTo(algo.id)}>
-                            Launch Lab <ArrowRight size={14} />
-                          </button>
-                        ) : (
-                          <button className="btn-pending" title="Will be built strictly when you instruct next">
-                            Pending Order
-                          </button>
-                        )}
-                      </div>
+                      <span className="section-algo-count">
+                        {readyCount} Active Studio{readyCount !== 1 ? 's' : ''} • {secAlgos.length} Architectures
+                      </span>
                     </div>
-                  ))}
-                </div>
-              </>
-            )}
+                    <p className="section-heading-desc">
+                      <strong style={{ color: 'var(--text-primary)' }}>{sec.subtitle}:</strong> {sec.desc}
+                    </p>
+                  </div>
 
-            {/* Lossy Section */}
-            {(filterCategory === 'all' || filterCategory === 'lossy') && (
-              <>
-                <div className="section-heading" style={{ marginTop: '50px' }}>
-                  <span className="section-heading-badge lossy">LOSSY COMPRESSION</span>
-                  <span>Rate-Distortion & Controlled Perceptual Transformation</span>
-                </div>
-                <div className="cards-grid">
-                  {filteredAlgos.filter(a => a.category === 'lossy').map(algo => (
-                    <div 
-                      key={algo.id} 
-                      className={`algo-card ${algo.status === 'ready' ? 'active-lab' : ''}`}>
-                      <div className="card-top">
-                        <div className="card-badges-row">
-                          <span className="algo-type-tag">{algo.type}</span>
-                          <span className={`status-chip ${algo.status}`}>
-                            {algo.status === 'ready' ? '● Active Studio' : 'Awaiting Your Order'}
-                          </span>
-                        </div>
-                        <h3 className="card-title">{algo.name}</h3>
-                        <p className="card-desc">{algo.desc}</p>
-                        
-                        <div className="card-formula-box">
-                          <code>{algo.formula}</code>
+                  <div className="cards-grid">
+                    {secAlgos.map(algo => (
+                      <div 
+                        key={algo.id} 
+                        className={`algo-card ${algo.status === 'ready' ? 'active-lab' : ''} ${algo.status === 'next' ? 'next-in-line' : ''}`}>
+                        <div className="card-top">
+                          <div className="card-badges-row">
+                            <span className="algo-type-tag">{algo.type}</span>
+                            <span className={`status-chip ${algo.status}`}>
+                              {algo.status === 'ready' ? '● Active Studio' : algo.status === 'next' ? '⚡ Next Up' : 'Awaiting Order'}
+                            </span>
+                          </div>
+                          <h3 className="card-title">{algo.name}</h3>
+                          <p className="card-desc">{algo.desc}</p>
+                          
+                          <div className="card-formula-box">
+                            <code>{algo.formula}</code>
+                          </div>
+
+                          <div className="card-pros-flaws">
+                            <div className="pf-row pro">
+                              <ShieldCheck size={14} style={{ flexShrink: 0, marginTop: '2px' }} />
+                              <span><strong>Pros:</strong> {algo.pros[0]}</span>
+                            </div>
+                            <div className="pf-row flaw">
+                              <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '2px' }} />
+                              <span><strong>Flaws:</strong> {algo.flaws[0]}</span>
+                            </div>
+                          </div>
+
+                          <div className="card-decision-preview">
+                            <div className="decision-pill use">
+                              <CheckCircle2 size={13} style={{ flexShrink: 0, marginTop: '2px' }} />
+                              <span><strong>Use for:</strong> {algo.whenToUse}</span>
+                            </div>
+                            <div className="decision-pill avoid">
+                              <XCircle size={13} style={{ flexShrink: 0, marginTop: '2px' }} />
+                              <span><strong>Avoid if:</strong> {algo.whenNotToUse}</span>
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="card-pros-flaws">
-                          <div className="pf-row pro">
-                            <ShieldCheck size={14} style={{ flexShrink: 0, marginTop: '2px' }} />
-                            <span><strong>Pros:</strong> {algo.pros[0]}</span>
+                        <div className="card-footer">
+                          <div>
+                            <div className="ratio-label">Typical Ratio</div>
+                            <div className="ratio-val">{algo.ratio}</div>
                           </div>
-                          <div className="pf-row flaw">
-                            <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: '2px' }} />
-                            <span><strong>Flaws:</strong> {algo.flaws[0]}</span>
-                          </div>
-                        </div>
-
-                        <div className="card-decision-preview">
-                          <div className="decision-pill use">
-                            <CheckCircle2 size={13} style={{ flexShrink: 0, marginTop: '2px' }} />
-                            <span><strong>Use for:</strong> {algo.whenToUse}</span>
-                          </div>
-                          <div className="decision-pill avoid">
-                            <XCircle size={13} style={{ flexShrink: 0, marginTop: '2px' }} />
-                            <span><strong>Avoid if:</strong> {algo.whenNotToUse}</span>
-                          </div>
+                          {algo.status === 'ready' ? (
+                            <button 
+                              className="btn-open-lab" 
+                              onClick={() => navigateTo(algo.id)}>
+                              Launch Lab <ArrowRight size={14} />
+                            </button>
+                          ) : algo.status === 'next' ? (
+                            <button 
+                              className="btn-next" 
+                              title="Next algorithm queued in our roadmap">
+                              <Zap size={14} /> Next Up
+                            </button>
+                          ) : (
+                            <button className="btn-pending" title="Will be built strictly when you instruct next">
+                              Pending Order
+                            </button>
+                          )}
                         </div>
                       </div>
-
-                      <div className="card-footer">
-                        <div>
-                          <div className="ratio-label">Typical Ratio</div>
-                          <div className="ratio-val">{algo.ratio}</div>
-                        </div>
-                        {algo.status === 'ready' ? (
-                          <button 
-                            className="btn-open-lab" 
-                            onClick={() => navigateTo(algo.id)}>
-                            Launch Lab <ArrowRight size={14} />
-                          </button>
-                        ) : (
-                          <button className="btn-pending" title="Will be built strictly when you instruct next">
-                            Pending Order
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
-              </>
-            )}
+              );
+            })}
           </div>
         </div>
       )}
