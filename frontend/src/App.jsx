@@ -70,6 +70,26 @@ const REAL_FILE_PRESETS = {
   }
 };
 
+// Preset Texts for LZ77 Sliding Window
+const LZ77_PRESETS = {
+  cars: {
+    name: 'Repetitive Sentences',
+    text: 'THE CAR ON THE LEFT PASSED THE CAR ON THE RIGHT AND HIT THE CAR IN THE MIDDLE'
+  },
+  overlap: {
+    name: 'Self-Referential Overlap',
+    text: 'ABRACADABRA_ABRACADABRA_ABRACADABRA!'
+  },
+  rle: {
+    name: 'Run-Length Repetition',
+    text: 'ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ'
+  },
+  code: {
+    name: 'C++ Source Code',
+    text: 'int counter = 0; while (counter < 10) { counter++; print(counter); }'
+  }
+};
+
 // Master Algorithm Registry
 const ALGORITHMS_CATALOG = [
   {
@@ -161,7 +181,7 @@ const ALGORITHMS_CATALOG = [
     name: 'LZ77 (Sliding Window)',
     category: 'lossless',
     type: 'Dictionary Coding',
-    status: 'pending',
+    status: 'ready',
     formula: 'Tokens: (distance, length, next_char)',
     ratio: '2:1 – 10:1',
     desc: 'Published in 1977 by Lempel & Ziv. Replaces repeating byte sequences with backward distance-length references into history. Foundation of GZIP, PNG, and ZIP.',
@@ -278,6 +298,20 @@ export default function App() {
   const isAutoBuildingRef = useRef(false);
   const activeSpeechTimeoutRef = useRef(null);
   const autoBuildTimerRef = useRef(null);
+
+  // ----------------------------------------------------
+  // LZ77 SLIDING WINDOW STATE
+  // ----------------------------------------------------
+  const [lzPresetKey, setLzPresetKey] = useState('cars');
+  const [lzInput, setLzInput] = useState(LZ77_PRESETS.cars.text);
+  const [lzWindowSize, setLzWindowSize] = useState(32);
+  const [lzLookaheadSize, setLzLookaheadSize] = useState(16);
+  const [lzStepIdx, setLzStepIdx] = useState(0);
+  const [lzAnimPhase, setLzAnimPhase] = useState('scanner'); // 'scanner' | 'recon' | 'matrix'
+  const [lzIsAutoBuilding, setLzIsAutoBuilding] = useState(false);
+  const [lzVoiceEnabled, setLzVoiceEnabled] = useState(true);
+  const lzIsAutoBuildingRef = useRef(false);
+  const lzSpeechTimeoutRef = useRef(null);
 
   // Hovered byte info for interactive matrix inspection
   const [hoveredByteInfo, setHoveredByteInfo] = useState(null);
@@ -621,6 +655,154 @@ export default function App() {
 
   // Keep animSteps synced with treeSteps
   const animSteps = treeSteps;
+
+  // ----------------------------------------------------
+  // LZ77 SLIDING WINDOW MATCH STEP GENERATOR WITH STEP REDUCTION MATH
+  // ----------------------------------------------------
+  const lzSteps = useMemo(() => {
+    if (!lzInput || lzInput.length === 0) return [];
+    const steps = [];
+    const size = lzInput.length;
+    let cursor = 0;
+    let cumulativeTokens = [];
+    let reconstructed = '';
+
+    while (cursor < size) {
+      const searchStart = Math.max(0, cursor - lzWindowSize);
+      const searchEnd = cursor - 1;
+      const maxLookahead = Math.min(lzLookaheadSize, size - cursor);
+      const matchableLimit = (cursor + maxLookahead < size) ? maxLookahead : (size - cursor - 1);
+
+      let bestDistance = 0;
+      let bestLength = 0;
+      let bestMatchPos = -1;
+
+      if (matchableLimit > 0) {
+        for (let pos = searchStart; pos < cursor; ++pos) {
+          let len = 0;
+          while (len < matchableLimit && lzInput[pos + len] === lzInput[cursor + len]) {
+            len++;
+          }
+          if (len > bestLength) {
+            bestLength = len;
+            bestDistance = cursor - pos;
+            bestMatchPos = pos;
+          }
+        }
+      }
+
+      const nextChar = lzInput[cursor + bestLength];
+      const token = {
+        distance: bestDistance,
+        length: bestLength,
+        nextChar: nextChar,
+        stepNumber: steps.length + 1
+      };
+
+      // Step-by-step mathematical size reduction calculation
+      const rawCharsCovered = bestLength + 1;
+      const rawBitsThisStep = rawCharsCovered * 8;
+      const tokenBitsThisStep = 28; // 12b distance + 8b length + 8b literal byte
+      const deltaBitsThisStep = rawBitsThisStep - tokenBitsThisStep;
+      const deltaPercentThisStep = Math.round((deltaBitsThisStep / rawBitsThisStep) * 100);
+
+      // Reconstructed output buffer so far
+      if (bestLength > 0) {
+        const copyStart = reconstructed.length - bestDistance;
+        for (let i = 0; i < bestLength; ++i) {
+          reconstructed += reconstructed[copyStart + i];
+        }
+      }
+      reconstructed += nextChar;
+
+      const currentTokens = [...cumulativeTokens, token];
+      cumulativeTokens = currentTokens;
+
+      const nextCharDisplay = nextChar === ' ' ? '␣ (space)' : `'${nextChar}'`;
+      const nextCharSpoken = nextChar === ' ' ? 'space' : nextChar;
+
+      let narrative = '';
+      let voiceScript = '';
+
+      if (bestLength > 0) {
+        const matchedSub = lzInput.substring(bestMatchPos, bestMatchPos + bestLength);
+        narrative = `Found match "${matchedSub}" (${bestLength} chars) at backward distance ${bestDistance}! Emitting token (d=${bestDistance}, l=${bestLength}, ${nextCharDisplay}). Calculation: ${rawBitsThisStep} raw bits (original) → 28 token bits (compressed), saving ${deltaBitsThisStep} bits (${deltaPercentThisStep}% size reduction on this phrase).`;
+        voiceScript = `Found matching phrase "${matchedSub}" of length ${bestLength} at distance ${bestDistance}. Emitting token with distance ${bestDistance}, length ${bestLength}, character ${nextCharSpoken}. This reduces ${rawBitsThisStep} raw bits down to 28 compressed bits, saving ${deltaBitsThisStep} bits.`;
+      } else {
+        narrative = `No prior match in search buffer for '${nextCharDisplay}'. Emitting literal token (d=0, l=0, ${nextCharDisplay}). Calculation: 8 raw bits (original) → 28 token bits (compressed), expanding by 20 bits (+250%) due to uncompressed triplet format.`;
+        voiceScript = `At cursor position ${cursor}, no match exists in history. Emitting literal token with distance zero, length zero, and character ${nextCharSpoken}.`;
+      }
+
+      steps.push({
+        stepIndex: steps.length,
+        cursor,
+        searchStart,
+        searchEnd,
+        lookaheadStart: cursor,
+        lookaheadEnd: cursor + bestLength,
+        bestDistance,
+        bestLength,
+        bestMatchPos,
+        nextChar,
+        token,
+        rawBitsThisStep,
+        tokenBitsThisStep,
+        deltaBitsThisStep,
+        deltaPercentThisStep,
+        narrative,
+        voiceScript,
+        tokensSoFar: currentTokens,
+        reconstructedSoFar: reconstructed
+      });
+
+      cursor += (bestLength + 1);
+    }
+    return steps;
+  }, [lzInput, lzWindowSize, lzLookaheadSize]);
+
+  // Synchronized LZ77 voice & auto-advancer
+  const handleLzStepChange = (newIdx) => {
+    if (newIdx < 0 || newIdx >= lzSteps.length) return;
+    setLzStepIdx(newIdx);
+    if (lzVoiceEnabled && lzSteps[newIdx]) {
+      speakWithCallback(lzSteps[newIdx].voiceScript, () => {
+        if (lzIsAutoBuildingRef.current) {
+          if (newIdx < lzSteps.length - 1) {
+            handleLzStepChange(newIdx + 1);
+          } else {
+            setLzIsAutoBuilding(false);
+            lzIsAutoBuildingRef.current = false;
+          }
+        }
+      });
+    }
+  };
+
+  const handleToggleLzAutoBuild = () => {
+    if (lzIsAutoBuilding) {
+      setLzIsAutoBuilding(false);
+      lzIsAutoBuildingRef.current = false;
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      if (lzSpeechTimeoutRef.current) clearTimeout(lzSpeechTimeoutRef.current);
+    } else {
+      setLzIsAutoBuilding(true);
+      lzIsAutoBuildingRef.current = true;
+      const startIdx = lzStepIdx >= lzSteps.length - 1 ? 0 : lzStepIdx;
+      setLzStepIdx(startIdx);
+      if (lzSteps[startIdx]) {
+        speakWithCallback(lzSteps[startIdx].voiceScript, () => {
+          if (lzIsAutoBuildingRef.current) {
+            if (startIdx < lzSteps.length - 1) {
+              handleLzStepChange(startIdx + 1);
+            } else {
+              setLzIsAutoBuilding(false);
+              lzIsAutoBuildingRef.current = false;
+            }
+          }
+        });
+      }
+    }
+  };
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -1992,6 +2174,155 @@ export default function App() {
             </div>
           </div>
 
+          {/* ==================== MATHEMATICAL SIZE REDUCTION BREAKDOWN (BEFORE vs. AFTER) ==================== */}
+          {(() => {
+            const rawBytes = inputText.length;
+            const rawBits = rawBytes * 8;
+            const uniqueSymbolsCount = Object.keys(codeLengths).length;
+            const headerBytes = Math.min(64, uniqueSymbolsCount * 2);
+            const compBitstreamBits = bitstream.length;
+            const totalCompBits = headerBytes * 8 + compBitstreamBits;
+            const totalCompBytes = headerBytes + Math.ceil(compBitstreamBits / 8);
+            const deltaBits = rawBits - totalCompBits;
+            const savingsPercent = rawBits > 0 ? ((deltaBits / rawBits) * 100).toFixed(1) : 0;
+            const ratio = totalCompBytes > 0 ? (rawBytes / totalCompBytes).toFixed(2) : '1.00';
+            const avgBitsPerSym = rawBytes > 0 ? (compBitstreamBits / rawBytes).toFixed(2) : 0;
+
+            return (
+              <div className="size-reduction-calculator-card">
+                <div className="calc-header">
+                  <div className="calc-title">
+                    <TrendingDown size={22} color="var(--accent-cyan)" />
+                    <span>Mathematical Size Reduction Breakdown: Before vs. After Compression</span>
+                  </div>
+                  <span className="algo-type-tag" style={{ color: 'var(--accent-emerald)', borderColor: 'rgba(16, 185, 129, 0.4)' }}>
+                    Exact Bit-Level Equation
+                  </span>
+                </div>
+
+                {/* Main Equation Banner */}
+                <div className="math-equation-banner">
+                  <div className="math-eq-item">
+                    <span className="math-eq-label">Before Compression</span>
+                    <span className="math-eq-val before">{rawBits} bits</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({rawBytes} Bytes @ 8b/char)</span>
+                  </div>
+
+                  <span className="math-operator">→</span>
+
+                  <div className="math-eq-item">
+                    <span className="math-eq-label">After Compression</span>
+                    <span className="math-eq-val after">{totalCompBits} bits</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({totalCompBytes} Bytes total)</span>
+                  </div>
+
+                  <span className="math-operator">=</span>
+
+                  <div className="math-eq-item">
+                    <span className="math-eq-label">Exact Reduction (Delta)</span>
+                    <span className="math-eq-val delta" style={{ color: deltaBits >= 0 ? 'var(--accent-cyan)' : 'var(--accent-rose)' }}>
+                      {deltaBits >= 0 ? `-${deltaBits} bits` : `+${Math.abs(deltaBits)} bits`}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      ({savingsPercent}% size reduction)
+                    </span>
+                  </div>
+
+                  <span className="math-operator">|</span>
+
+                  <div className="math-eq-item">
+                    <span className="math-eq-label">Compression Factor</span>
+                    <span className="math-eq-val ratio">{ratio} : 1</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>density multiplier</span>
+                  </div>
+                </div>
+
+                {/* 3-Column Detailed Mathematical Audit */}
+                <div className="reduction-three-col-grid">
+                  {/* Column 1: Before */}
+                  <div className="reduction-col-card before">
+                    <div className="reduction-col-title">
+                      <FileText size={18} />
+                      <span>1. What Existed Before (Raw)</span>
+                    </div>
+                    <ul className="reduction-detail-list">
+                      <li>
+                        <span>Uncompressed Symbols:</span>
+                        <strong>{rawBytes} chars</strong>
+                      </li>
+                      <li>
+                        <span>Fixed Character Width:</span>
+                        <strong>8 bits / symbol</strong>
+                      </li>
+                      <li>
+                        <span>Raw Bitstream Formula:</span>
+                        <strong>N × 8 = {rawBits} bits</strong>
+                      </li>
+                      <li>
+                        <span>Shannon Entropy Bound:</span>
+                        <strong>{calculateEntropy(inputText).toFixed(3)} bits / symbol</strong>
+                      </li>
+                    </ul>
+                  </div>
+
+                  {/* Column 2: Reduction Mechanism */}
+                  <div className="reduction-col-card mechanism">
+                    <div className="reduction-col-title">
+                      <Zap size={18} />
+                      <span>2. How It Reduced Size</span>
+                    </div>
+                    <ul className="reduction-detail-list">
+                      <li>
+                        <span>Variable Code Assignment:</span>
+                        <strong>Frequent chars → 1-3 bits</strong>
+                      </li>
+                      <li>
+                        <span>Average Compressed Width:</span>
+                        <strong>{avgBitsPerSym} bits / symbol</strong>
+                      </li>
+                      <li>
+                        <span>Bit Savings on Payload:</span>
+                        <strong>{rawBits - compBitstreamBits} bits saved</strong>
+                      </li>
+                      <li>
+                        <span>Header Transmit Cost:</span>
+                        <strong>+{headerBytes * 8} bits (lengths)</strong>
+                      </li>
+                    </ul>
+                  </div>
+
+                  {/* Column 3: After */}
+                  <div className="reduction-col-card after">
+                    <div className="reduction-col-title">
+                      <CheckCircle2 size={18} />
+                      <span>3. What Replaces It (After)</span>
+                    </div>
+                    <ul className="reduction-detail-list">
+                      <li>
+                        <span>Canonical Header Size:</span>
+                        <strong>{headerBytes} Bytes ({headerBytes * 8} bits)</strong>
+                      </li>
+                      <li>
+                        <span>Packed Prefix Bitstream:</span>
+                        <strong>{compBitstreamBits} bits</strong>
+                      </li>
+                      <li>
+                        <span>Total Transmitted File:</span>
+                        <strong>{totalCompBytes} Bytes ({totalCompBits} bits)</strong>
+                      </li>
+                      <li>
+                        <span>Net Space Reduction:</span>
+                        <strong style={{ color: deltaBits >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                          {savingsPercent}%
+                        </strong>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* ==================== PROS, FLAWS & GOTCHAS DEEP ANALYSIS ==================== */}
           <div className="pros-flaws-deep-grid">
             <div className="pf-deep-card pros">
@@ -2177,6 +2508,764 @@ export default function App() {
                       </li>
                     </>
                   )}
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          VIEW 3: DEDICATED LZ77 SLIDING WINDOW STUDIO WITH REAL DATA MATRIX & ANIMATOR
+          ========================================================================= */}
+      {currentView === 'lz77' && (
+        <div className="studio-container">
+          <div className="studio-header">
+            <div>
+              <span className="section-heading-badge lossless">
+                ALGORITHM #7: SLIDING WINDOW DICTIONARY
+              </span>
+              <h2 className="matrix-hero-title" style={{ marginTop: '8px', fontSize: '2rem' }}>
+                LZ77 (Lempel-Ziv 1977): <span>Animated Sliding Window & Real Data Matrix</span>
+              </h2>
+            </div>
+            <div className="cxx-badge">
+              <span className="cxx-icon">C++17</span>
+              <span>lossless/lz77/lz77.hpp</span>
+            </div>
+          </div>
+
+          <div className="tree-animator-card">
+            {/* Phase Navigation Tabs */}
+            <div className="anim-phase-nav">
+              <button 
+                className={`phase-tab-btn ${lzAnimPhase === 'scanner' ? 'active' : ''}`}
+                onClick={() => setLzAnimPhase('scanner')}>
+                <Sparkles size={16} /> Phase 1: Sliding Window Match Scanner
+              </button>
+              <button 
+                className={`phase-tab-btn ${lzAnimPhase === 'recon' ? 'active' : ''}`}
+                onClick={() => setLzAnimPhase('recon')}>
+                <GitMerge size={16} /> Phase 2: Token Stream & Reconstruction
+              </button>
+              <button 
+                className={`phase-tab-btn ${lzAnimPhase === 'matrix' ? 'active' : ''}`}
+                onClick={() => setLzAnimPhase('matrix')}>
+                <FileCode size={16} /> Phase 3: Real File Data Matrix (Hex / ASCII / 28-Bit)
+              </button>
+            </div>
+
+            {/* Presets & Window Parameters Bar */}
+            <div className="anim-controls-bar" style={{ flexWrap: 'wrap', gap: '14px', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>Presets:</span>
+                {Object.entries(LZ77_PRESETS).map(([key, item]) => (
+                  <button
+                    key={key}
+                    className={`chip-btn ${lzPresetKey === key ? 'active' : ''}`}
+                    style={lzPresetKey === key ? { background: 'rgba(0, 242, 254, 0.2)', borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)' } : {}}
+                    onClick={() => {
+                      setLzPresetKey(key);
+                      setLzInput(item.text);
+                      setLzStepIdx(0);
+                      setLzIsAutoBuilding(false);
+                      lzIsAutoBuildingRef.current = false;
+                      if (window.speechSynthesis) window.speechSynthesis.cancel();
+                    }}>
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  <span>History Window:</span>
+                  <select 
+                    value={lzWindowSize} 
+                    onChange={e => { setLzWindowSize(Number(e.target.value)); setLzStepIdx(0); }}
+                    style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', border: '1px solid var(--border-subtle)', borderRadius: '4px', padding: '4px 8px', fontSize: '0.8rem' }}>
+                    <option value={16}>16 Bytes</option>
+                    <option value={32}>32 Bytes</option>
+                    <option value={64}>64 Bytes</option>
+                    <option value={128}>128 Bytes</option>
+                  </select>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                  <span>Lookahead:</span>
+                  <select 
+                    value={lzLookaheadSize} 
+                    onChange={e => { setLzLookaheadSize(Number(e.target.value)); setLzStepIdx(0); }}
+                    style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', border: '1px solid var(--border-subtle)', borderRadius: '4px', padding: '4px 8px', fontSize: '0.8rem' }}>
+                    <option value={8}>8 Bytes</option>
+                    <option value={16}>16 Bytes</option>
+                    <option value={32}>32 Bytes</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Custom Input Field */}
+            <div style={{ marginTop: '12px', display: 'flex', gap: '10px', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Input Stream:</span>
+              <input 
+                type="text"
+                value={lzInput}
+                onChange={e => {
+                  setLzPresetKey('custom');
+                  setLzInput(e.target.value);
+                  setLzStepIdx(0);
+                  setLzIsAutoBuilding(false);
+                  lzIsAutoBuildingRef.current = false;
+                  if (window.speechSynthesis) window.speechSynthesis.cancel();
+                }}
+                style={{ flex: 1, background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: '4px', padding: '6px 12px', color: '#fff', fontFamily: 'var(--font-mono)', fontSize: '0.88rem' }}
+              />
+            </div>
+
+            {/* Playback Controls & Voice Toolbar */}
+            <div className="anim-controls-bar" style={{ marginTop: '16px' }}>
+              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                <button 
+                  className={`btn ${lzIsAutoBuilding ? 'btn-secondary' : 'btn-accent'}`}
+                  onClick={handleToggleLzAutoBuild}>
+                  {lzIsAutoBuilding ? <Pause size={14} /> : <Play size={14} />}
+                  {lzIsAutoBuilding ? 'Pause Auto-Scanner' : 'Auto-Scan with Voice'}
+                </button>
+                <button 
+                  className="btn btn-secondary"
+                  disabled={lzStepIdx === 0}
+                  onClick={() => handleLzStepChange(lzStepIdx - 1)}>
+                  <StepBack size={14} /> Step Back
+                </button>
+                <button 
+                  className="btn btn-primary"
+                  disabled={lzStepIdx >= lzSteps.length - 1}
+                  onClick={() => handleLzStepChange(lzStepIdx + 1)}>
+                  Step Forward <StepForward size={14} />
+                </button>
+                <button 
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    setLzStepIdx(0);
+                    setLzIsAutoBuilding(false);
+                    lzIsAutoBuildingRef.current = false;
+                    if (window.speechSynthesis) window.speechSynthesis.cancel();
+                  }}>
+                  <RotateCcw size={14} /> Reset
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <button 
+                  className={`voice-toggle-chip ${lzVoiceEnabled ? 'active' : ''}`}
+                  onClick={() => setLzVoiceEnabled(!lzVoiceEnabled)}>
+                  {lzVoiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+                  <span>{lzVoiceEnabled ? 'Voice Narration ON' : 'Voice Narration OFF'}</span>
+                </button>
+                <span className="step-counter-tag">
+                  Token {lzStepIdx + 1} of {lzSteps.length || 1}
+                </span>
+              </div>
+            </div>
+
+            {/* Step Narrative Banner with Step Mathematical Reduction Pill */}
+            {lzSteps[lzStepIdx] && (
+              <div className="step-narrative-banner" style={{ marginTop: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  <div className="step-narrative-title">
+                    <Sparkles size={16} color="var(--accent-cyan)" />
+                    <span>Step {lzStepIdx + 1}: Longest Match & Step Reduction Calculation</span>
+                  </div>
+                  <div className="step-reduction-pill">
+                    <span className="pill-before">{lzSteps[lzStepIdx].rawBitsThisStep}b raw</span>
+                    <span>→</span>
+                    <span className="pill-after">28b token</span>
+                    <span>=</span>
+                    <span className="pill-saved" style={{ color: lzSteps[lzStepIdx].deltaBitsThisStep >= 0 ? 'var(--accent-cyan)' : 'var(--accent-rose)' }}>
+                      {lzSteps[lzStepIdx].deltaBitsThisStep >= 0 ? `-${lzSteps[lzStepIdx].deltaBitsThisStep}b (${lzSteps[lzStepIdx].deltaPercentThisStep}%)` : `+${Math.abs(lzSteps[lzStepIdx].deltaBitsThisStep)}b expanded`}
+                    </span>
+                  </div>
+                </div>
+                <p className="step-narrative-text">
+                  {lzSteps[lzStepIdx].narrative}
+                </p>
+              </div>
+            )}
+
+            {/* -------------------- PHASE 1: SLIDING WINDOW MATCH SCANNER -------------------- */}
+            {lzAnimPhase === 'scanner' && (
+              <div className="lz-studio-wrapper" style={{ marginTop: '20px' }}>
+                {/* Visual Legend */}
+                <div className="lz-legend-row">
+                  <div className="lz-legend-chip">
+                    <div className="lz-color-box history"></div>
+                    <span>Search History Window (d offset zone)</span>
+                  </div>
+                  <div className="lz-legend-chip">
+                    <div className="lz-color-box lookahead"></div>
+                    <span>Lookahead Window</span>
+                  </div>
+                  <div className="lz-legend-chip">
+                    <div className="lz-color-box match-source"></div>
+                    <span>Matched In History</span>
+                  </div>
+                  <div className="lz-legend-chip">
+                    <div className="lz-color-box match-target"></div>
+                    <span>Matched Target</span>
+                  </div>
+                  <div className="lz-legend-chip">
+                    <div className="lz-color-box next-literal"></div>
+                    <span>Next Literal (c)</span>
+                  </div>
+                </div>
+
+                {/* Sliding Tape */}
+                <div className="lz-tape-card">
+                  <div className="lz-tape-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Eye size={16} color="var(--accent-cyan)" />
+                      <strong style={{ fontSize: '0.95rem' }}>Sliding Character Tape & Buffers</strong>
+                    </div>
+                    {lzSteps[lzStepIdx] && (
+                      <div className="lz-window-metrics">
+                        <span className="lz-window-metric-tag" style={{ color: 'var(--accent-cyan)' }}>
+                          History: [{lzSteps[lzStepIdx].searchStart}..{lzSteps[lzStepIdx].searchEnd >= 0 ? lzSteps[lzStepIdx].searchEnd : 0}]
+                        </span>
+                        <span className="lz-window-metric-tag" style={{ color: '#c084fc' }}>
+                          Cursor: {lzSteps[lzStepIdx].cursor}
+                        </span>
+                        <span className="lz-window-metric-tag" style={{ color: 'var(--accent-emerald)' }}>
+                          Match Len: {lzSteps[lzStepIdx].bestLength}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="lz-tape-scroll">
+                    {lzInput.split('').map((ch, idx) => {
+                      const curStep = lzSteps[lzStepIdx];
+                      if (!curStep) return null;
+
+                      const isCursor = idx === curStep.cursor;
+                      const inHistory = idx >= curStep.searchStart && idx <= curStep.searchEnd;
+                      const inLookahead = idx >= curStep.cursor && idx < curStep.cursor + lzLookaheadSize;
+                      
+                      const isMatchSource = curStep.bestLength > 0 && 
+                                            idx >= curStep.bestMatchPos && 
+                                            idx < curStep.bestMatchPos + curStep.bestLength;
+                      
+                      const isMatchTarget = curStep.bestLength > 0 && 
+                                            idx >= curStep.cursor && 
+                                            idx < curStep.cursor + curStep.bestLength;
+                      
+                      const isNextLiteral = idx === curStep.cursor + curStep.bestLength;
+
+                      let cellClass = "lz-cell";
+                      if (inHistory) cellClass += " in-history";
+                      if (inLookahead) cellClass += " in-lookahead";
+                      if (isMatchSource) cellClass += " in-match-src";
+                      if (isMatchTarget) cellClass += " in-match-tgt";
+                      if (isNextLiteral) cellClass += " in-next-literal";
+
+                      return (
+                        <div key={idx} className={cellClass}>
+                          {isCursor && <span className="lz-cursor-indicator">CURSOR</span>}
+                          <span className="lz-cell-char">{ch === ' ' ? '␣' : ch}</span>
+                          <span className="lz-cell-idx">{idx}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Live Emitted Token Card & History Grid */}
+                {lzSteps[lzStepIdx] && (
+                  <div className="lz-token-live-card">
+                    <div className="lz-triplet-display">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <Zap size={18} color="var(--accent-cyan)" />
+                        <h4 style={{ margin: 0, fontSize: '1.05rem', fontFamily: 'var(--font-display)' }}>
+                          Emitted LZ77 Token Triplet: (distance, length, next_char)
+                        </h4>
+                      </div>
+
+                      <div className="lz-triplet-hero">
+                        <div className="lz-pill distance">
+                          <span className="lz-pill-label">Distance (d)</span>
+                          <span className="lz-pill-val">{lzSteps[lzStepIdx].bestDistance}</span>
+                          <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>backward offset</span>
+                        </div>
+
+                        <span style={{ fontSize: '1.5rem', color: 'var(--text-muted)' }}>,</span>
+
+                        <div className="lz-pill length">
+                          <span className="lz-pill-label">Length (l)</span>
+                          <span className="lz-pill-val">{lzSteps[lzStepIdx].bestLength}</span>
+                          <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>matched bytes</span>
+                        </div>
+
+                        <span style={{ fontSize: '1.5rem', color: 'var(--text-muted)' }}>,</span>
+
+                        <div className="lz-pill next-lit">
+                          <span className="lz-pill-label">Literal (c)</span>
+                          <span className="lz-pill-val">
+                            {lzSteps[lzStepIdx].nextChar === ' ' ? '␣' : `'${lzSteps[lzStepIdx].nextChar}'`}
+                          </span>
+                          <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>next uncompressed byte</span>
+                        </div>
+                      </div>
+
+                      <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                        {lzSteps[lzStepIdx].bestLength > 0 ? (
+                          <>
+                            Decoder will copy <strong>{lzSteps[lzStepIdx].bestLength} bytes</strong> starting <strong>{lzSteps[lzStepIdx].bestDistance} positions back</strong> from output end, then append literal byte <strong>'{lzSteps[lzStepIdx].nextChar === ' ' ? 'space' : lzSteps[lzStepIdx].nextChar}'</strong>.
+                          </>
+                        ) : (
+                          <>
+                            Zero prior match found. Distance and length are 0. Decoder simply appends literal <strong>'{lzSteps[lzStepIdx].nextChar === ' ' ? 'space' : lzSteps[lzStepIdx].nextChar}'</strong>.
+                          </>
+                        )}
+                      </p>
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-muted)' }}>
+                          Cumulative Token Stream ({lzSteps[lzStepIdx].tokensSoFar.length} emitted)
+                        </span>
+                      </div>
+                      <div className="lz-token-stream-grid">
+                        {lzSteps[lzStepIdx].tokensSoFar.map((t, idx) => (
+                          <div 
+                            key={idx} 
+                            className={`lz-token-chip ${idx === lzSteps[lzStepIdx].tokensSoFar.length - 1 ? 'active-latest' : ''}`}>
+                            <span style={{ opacity: 0.5, fontSize: '0.7rem' }}>#{idx + 1}</span>
+                            <span>(</span>
+                            <span className="tok-d">d={t.distance}</span>
+                            <span>,</span>
+                            <span className="tok-l">l={t.length}</span>
+                            <span>,</span>
+                            <span className="tok-c">'{t.nextChar === ' ' ? '␣' : t.nextChar}'</span>
+                            <span>)</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* -------------------- PHASE 2: TOKEN STREAM & RECONSTRUCTION -------------------- */}
+            {lzAnimPhase === 'recon' && lzSteps[lzStepIdx] && (
+              <div className="lz-studio-wrapper" style={{ marginTop: '20px' }}>
+                <div className="lz-reconstructed-banner">
+                  <div className="recon-title">
+                    <CheckCircle2 size={18} />
+                    <span>Live Asymmetric Decompressor Reconstruction (Zero Search, Direct Relative Copy)</span>
+                  </div>
+                  <div className="lz-reconstructed-text">
+                    {lzSteps[lzStepIdx].reconstructedSoFar || '(empty)'}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    Reconstructed <strong>{lzSteps[lzStepIdx].reconstructedSoFar.length}</strong> of <strong>{lzInput.length}</strong> bytes ({Math.round((lzSteps[lzStepIdx].reconstructedSoFar.length / lzInput.length) * 100)}% complete)
+                  </div>
+                </div>
+
+                <div className="card" style={{ padding: '20px' }}>
+                  <h4 style={{ fontFamily: 'var(--font-display)', marginBottom: '14px', fontSize: '1.05rem' }}>
+                    Decompressor Step-by-Step Execution Log
+                  </h4>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '280px', overflowY: 'auto' }}>
+                    {lzSteps[lzStepIdx].tokensSoFar.map((t, idx) => (
+                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(255,255,255,0.03)', padding: '8px 14px', borderRadius: '4px', fontFamily: 'var(--font-mono)', fontSize: '0.84rem' }}>
+                        <span style={{ color: 'var(--accent-violet)', fontWeight: 700 }}>Token #{idx + 1}</span>
+                        <span style={{ color: 'var(--accent-cyan)' }}>d={t.distance}</span>
+                        <span style={{ color: 'var(--accent-emerald)' }}>l={t.length}</span>
+                        <span style={{ color: 'var(--accent-rose)' }}>c='{t.nextChar === ' ' ? '␣' : t.nextChar}'</span>
+                        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                          → {t.length > 0 ? `Copied ${t.length} bytes from backward offset ${t.distance} + appended '${t.nextChar === ' ' ? '␣' : t.nextChar}'` : `Appended literal '${t.nextChar === ' ' ? '␣' : t.nextChar}'`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* -------------------- PHASE 3: REAL FILE DATA MATRIX -------------------- */}
+            {lzAnimPhase === 'matrix' && (
+              <div className="lz-studio-wrapper" style={{ marginTop: '20px' }}>
+                {/* Metric Summary Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
+                  <div className="metric-box">
+                    <span className="metric-val">{lzInput.length} B</span>
+                    <span className="metric-lbl">Raw Uncompressed File</span>
+                  </div>
+                  <div className="metric-box">
+                    <span className="metric-val" style={{ color: 'var(--accent-cyan)' }}>
+                      {12 + Math.ceil((lzSteps.length * 28) / 8)} B
+                    </span>
+                    <span className="metric-lbl">LZ77 Binary Stream (Header + Tokens)</span>
+                  </div>
+                  <div className="metric-box">
+                    <span className="metric-val" style={{ color: lzInput.length > (12 + Math.ceil((lzSteps.length * 28) / 8)) ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                      {(lzInput.length / Math.max(1, 12 + Math.ceil((lzSteps.length * 28) / 8))).toFixed(2)} : 1
+                    </span>
+                    <span className="metric-lbl">Compression Ratio</span>
+                  </div>
+                  <div className="metric-box">
+                    <span className="metric-val" style={{ color: 'var(--accent-violet)' }}>
+                      {lzSteps.length}
+                    </span>
+                    <span className="metric-lbl">Emitted (d,l,c) Triplets</span>
+                  </div>
+                </div>
+
+                {/* Hex / ASCII Matrix Comparison */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  <div className="matrix-pane">
+                    <div className="matrix-pane-header">
+                      <span>ORIGINAL UNCOMPRESSED BYTES (ASCII & HEX)</span>
+                      <span className="matrix-size-tag">{lzInput.length} Bytes</span>
+                    </div>
+                    <div className="hex-ascii-grid-scroll" style={{ maxHeight: '260px' }}>
+                      <table className="matrix-hex-table">
+                        <thead>
+                          <tr>
+                            <th>Offset</th>
+                            <th>Hex Value</th>
+                            <th>ASCII Symbol</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lzInput.split('').map((c, i) => (
+                            <tr key={i}>
+                              <td className="cell-offset">0x{i.toString(16).padStart(4, '0')}</td>
+                              <td className="cell-hex">0x{c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}</td>
+                              <td className="cell-ascii">{c === ' ' ? '␣' : c}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  <div className="matrix-pane">
+                    <div className="matrix-pane-header">
+                      <span>SERIALIZED LZ77 BITSTREAM (12B HEADER + 28b TOKENS)</span>
+                      <span className="matrix-size-tag" style={{ color: 'var(--accent-cyan)' }}>
+                        {12 + Math.ceil((lzSteps.length * 28) / 8)} Bytes
+                      </span>
+                    </div>
+                    <div className="hex-ascii-grid-scroll" style={{ maxHeight: '260px' }}>
+                      <div style={{ padding: '12px', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', lineHeight: 1.6 }}>
+                        <div style={{ color: 'var(--accent-violet)', fontWeight: 700, marginBottom: '6px' }}>
+                          [Header - 12 Bytes]
+                        </div>
+                        <div style={{ color: 'var(--text-secondary)' }}>
+                          • Magic (4B): 0x4C5A3737 ('LZ77')<br />
+                          • Original Size (4B): {lzInput.length} bytes (0x{lzInput.length.toString(16).padStart(8, '0')})<br />
+                          • Token Count (4B): {lzSteps.length} tokens (0x{lzSteps.length.toString(16).padStart(8, '0')})
+                        </div>
+                        <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, marginTop: '12px', marginBottom: '6px' }}>
+                          [Token Payload - 28 bits per token: 12b d | 8b l | 8b c]
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                          {lzSteps.map((s, idx) => (
+                            <div key={idx} style={{ color: 'var(--text-muted)' }}>
+                              #{idx + 1}: d={s.token.distance} (0b{s.token.distance.toString(2).padStart(12, '0')}) | l={s.token.length} (0b{s.token.length.toString(2).padStart(8, '0')}) | c='{s.token.nextChar === ' ' ? '␣' : s.token.nextChar}' (0x{s.token.nextChar.charCodeAt(0).toString(16).padStart(2, '0')})
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ==================== MATHEMATICAL SIZE REDUCTION BREAKDOWN (BEFORE vs. AFTER) ==================== */}
+          {(() => {
+            const rawBytes = lzInput.length;
+            const rawBits = rawBytes * 8;
+            const headerBytes = 12;
+            const tokenBits = lzSteps.length * 28;
+            const totalCompBits = headerBytes * 8 + tokenBits;
+            const totalCompBytes = headerBytes + Math.ceil(tokenBits / 8);
+            const deltaBits = rawBits - totalCompBits;
+            const savingsPercent = rawBits > 0 ? ((deltaBits / rawBits) * 100).toFixed(1) : 0;
+            const ratio = totalCompBytes > 0 ? (rawBytes / totalCompBytes).toFixed(2) : '1.00';
+            const matchesCount = lzSteps.filter(s => s.bestLength > 0).length;
+            const literalsCount = lzSteps.filter(s => s.bestLength === 0).length;
+            const charsSaved = lzSteps.reduce((acc, s) => acc + s.bestLength, 0);
+
+            return (
+              <div className="size-reduction-calculator-card">
+                <div className="calc-header">
+                  <div className="calc-title">
+                    <TrendingDown size={22} color="var(--accent-cyan)" />
+                    <span>Mathematical Size Reduction Breakdown: Before vs. After Compression</span>
+                  </div>
+                  <span className="algo-type-tag" style={{ color: 'var(--accent-cyan)', borderColor: 'rgba(0, 242, 254, 0.4)' }}>
+                    Exact Bit-Level Equation
+                  </span>
+                </div>
+
+                {/* Main Equation Banner */}
+                <div className="math-equation-banner">
+                  <div className="math-eq-item">
+                    <span className="math-eq-label">Before Compression</span>
+                    <span className="math-eq-val before">{rawBits} bits</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({rawBytes} Bytes @ 8b/char)</span>
+                  </div>
+
+                  <span className="math-operator">→</span>
+
+                  <div className="math-eq-item">
+                    <span className="math-eq-label">After Compression</span>
+                    <span className="math-eq-val after">{totalCompBits} bits</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({totalCompBytes} Bytes total)</span>
+                  </div>
+
+                  <span className="math-operator">=</span>
+
+                  <div className="math-eq-item">
+                    <span className="math-eq-label">Exact Reduction (Delta)</span>
+                    <span className="math-eq-val delta" style={{ color: deltaBits >= 0 ? 'var(--accent-cyan)' : 'var(--accent-rose)' }}>
+                      {deltaBits >= 0 ? `-${deltaBits} bits` : `+${Math.abs(deltaBits)} bits`}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                      ({savingsPercent}% size reduction)
+                    </span>
+                  </div>
+
+                  <span className="math-operator">|</span>
+
+                  <div className="math-eq-item">
+                    <span className="math-eq-label">Compression Factor</span>
+                    <span className="math-eq-val ratio">{ratio} : 1</span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>density multiplier</span>
+                  </div>
+                </div>
+
+                {/* 3-Column Detailed Mathematical Audit */}
+                <div className="reduction-three-col-grid">
+                  {/* Column 1: Before */}
+                  <div className="reduction-col-card before">
+                    <div className="reduction-col-title">
+                      <FileText size={18} />
+                      <span>1. What Existed Before (Raw)</span>
+                    </div>
+                    <ul className="reduction-detail-list">
+                      <li>
+                        <span>Uncompressed Symbols:</span>
+                        <strong>{rawBytes} chars</strong>
+                      </li>
+                      <li>
+                        <span>Fixed Character Width:</span>
+                        <strong>8 bits / symbol</strong>
+                      </li>
+                      <li>
+                        <span>Raw Bitstream Formula:</span>
+                        <strong>N × 8 = {rawBits} bits</strong>
+                      </li>
+                      <li>
+                        <span>Substrings Waiting in Lookahead:</span>
+                        <strong>{lzSteps.length} match segments</strong>
+                      </li>
+                    </ul>
+                  </div>
+
+                  {/* Column 2: Reduction Mechanism */}
+                  <div className="reduction-col-card mechanism">
+                    <div className="reduction-col-title">
+                      <Zap size={18} />
+                      <span>2. How It Reduced Size</span>
+                    </div>
+                    <ul className="reduction-detail-list">
+                      <li>
+                        <span>Matches Found in History:</span>
+                        <strong>{matchesCount} phrases</strong>
+                      </li>
+                      <li>
+                        <span>Repeated Bytes Deduplicated:</span>
+                        <strong>{charsSaved} bytes</strong>
+                      </li>
+                      <li>
+                        <span>Uncompressed Literals:</span>
+                        <strong>{literalsCount} tokens (d=0, l=0)</strong>
+                      </li>
+                      <li>
+                        <span>Header Transmit Cost:</span>
+                        <strong>+96 bits (12-byte header)</strong>
+                      </li>
+                    </ul>
+                  </div>
+
+                  {/* Column 3: After */}
+                  <div className="reduction-col-card after">
+                    <div className="reduction-col-title">
+                      <CheckCircle2 size={18} />
+                      <span>3. What Replaces It (After)</span>
+                    </div>
+                    <ul className="reduction-detail-list">
+                      <li>
+                        <span>Binary Header Size:</span>
+                        <strong>12 Bytes (96 bits)</strong>
+                      </li>
+                      <li>
+                        <span>Packed 28-bit Token Stream:</span>
+                        <strong>{lzSteps.length} × 28 = {tokenBits} bits</strong>
+                      </li>
+                      <li>
+                        <span>Total Transmitted File:</span>
+                        <strong>{totalCompBytes} Bytes ({totalCompBits} bits)</strong>
+                      </li>
+                      <li>
+                        <span>Net Space Reduction:</span>
+                        <strong style={{ color: deltaBits >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                          {savingsPercent}%
+                        </strong>
+                      </li>
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ==================== PROS, FLAWS & GOTCHAS DEEP ANALYSIS ==================== */}
+          <div className="pros-flaws-deep-grid">
+            <div className="pf-deep-card pros">
+              <h4><ShieldCheck size={20} /> Architectural Strengths & Pros of LZ77</h4>
+              <ul className="pf-deep-list">
+                <li>
+                  <span><strong>Asymmetric Blazing-Fast Decompression:</strong> The receiver requires zero search, zero hashing, and zero tree traversal. Decompression is pure direct memory copying (<code>memcpy</code>) at multi-gigabyte/sec speeds.</span>
+                </li>
+                <li>
+                  <span><strong>Zero Prior Distribution Required:</strong> Unlike Huffman or Arithmetic coding, LZ77 adapts dynamically on-the-fly to local context without needing a prior frequency scan pass.</span>
+                </li>
+                <li>
+                  <span><strong>Run-Length Overlap Superpower:</strong> When match length exceeds distance ($l &gt; d$), LZ77 naturally compresses repeating runs (e.g. 500 identical characters) into a single 28-bit token ($d=1, l=499, c$).</span>
+                </li>
+                <li>
+                  <span><strong>Universal Industry Foundation:</strong> Serves as the primary deduplication stage in DEFLATE (ZIP, GZIP), PNG, LZ4, Snappy, and Zstandard.</span>
+                </li>
+              </ul>
+            </div>
+
+            <div className="pf-deep-card flaws">
+              <h4><AlertTriangle size={20} /> Engineering Flaws, Gotchas & Limitations</h4>
+              <ul className="pf-deep-list">
+                <li>
+                  <span><strong>Quadratic Search Overhead Without Hash Chains:</strong> A naive sliding search requires $O(N \cdot W_s \cdot W_l)$ string comparisons. Production encoders must maintain 3-byte hash tables to achieve linear $O(N)$ encoding time.</span>
+                </li>
+                <li>
+                  <span><strong>The Severe Negative Expansion Hazard:</strong> On non-repeating data (random bytes, pre-compressed files), each literal character requires 28 bits (3.5 bytes) to store 1 byte—causing a devastating 3.5× file explosion!</span>
+                </li>
+                <li>
+                  <span><strong>Window Horizon Blindness:</strong> A standard 32 KB or 4 KB sliding window cannot detect identical duplicate phrases located outside the window horizon (e.g., 64 KB apart).</span>
+                </li>
+                <li>
+                  <span><strong>Requires Flagged Literals (LZSS) or Entropy Coding (DEFLATE):</strong> Raw (d, l, c) triplets are too bloated; production formats must use 1-bit flags or Huffman coding on the token stream.</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* ==================== ARCHITECTURAL DECISION GUIDE: WHEN TO USE vs. WHEN NOT TO USE ==================== */}
+          <div className="decision-guide-card">
+            <div className="decision-guide-header">
+              <div className="decision-guide-title">
+                <Zap size={22} color="var(--accent-cyan)" />
+                <span>Production Architecture Guide: When to Use vs. When NOT to Use</span>
+              </div>
+              <span className="algo-type-tag" style={{ color: 'var(--accent-cyan)', borderColor: 'rgba(0, 242, 254, 0.3)' }}>
+                LZ77 Sliding Window Matrix
+              </span>
+            </div>
+
+            <div className="decision-guide-grid">
+              {/* When to Use Column */}
+              <div className="decision-col when-to-use">
+                <div className="decision-col-header">
+                  <CheckCircle2 size={20} />
+                  <span>When to Use This Algorithm</span>
+                </div>
+                <ul className="decision-items-list">
+                  <li className="decision-item">
+                    <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                    <div>
+                      <strong>Multi-Byte Repeated Phrases & Structured Text:</strong> Ideal for JSON, XML, HTML, CSV, server logs, and source code where long repetitive substrings appear frequently.
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                    <div>
+                      <strong>Compound Multi-Stage Pipelines (DEFLATE / GZIP / PNG / ZIP):</strong> Universally used as the first-stage dictionary deduplicator to convert repeated phrases into distance/length symbols before Huffman or ANS encoding.
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                    <div>
+                      <strong>Asymmetric "Compress Once, Decompress Everywhere" Workloads:</strong> Game asset packaging, static web assets, and package managers where encode CPU time is expendable to guarantee lightning-fast client decompressions.
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                    <div>
+                      <strong>Embedded Targets with Strict Decompression RAM Limits:</strong> Decompression needs only a small circular buffer equal to the window size (e.g., 2 KB to 32 KB) and zero dynamic memory allocations.
+                    </div>
+                  </li>
+                </ul>
+              </div>
+
+              {/* When NOT to Use Column */}
+              <div className="decision-col when-not-to-use">
+                <div className="decision-col-header">
+                  <XCircle size={20} />
+                  <span>When NOT to Use It & Alternatives</span>
+                </div>
+                <ul className="decision-items-list">
+                  <li className="decision-item">
+                    <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                    <div>
+                      <strong>Uncompressed Raw Triplet Storage:</strong> Storing fixed 28-bit $(d, l, c)$ tokens without entropy coding causes severe negative file expansion on non-repeating data.
+                      <div style={{ marginTop: '4px' }}>
+                        <span className="badge-alt">Use Instead:</span> <strong>LZSS</strong> (1-bit literal/match flag) or <strong>DEFLATE</strong> (Huffman-coded tokens).
+                      </div>
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                    <div>
+                      <strong>Encrypted, Random, or Pre-Compressed Files (ZIP, JPEG, MP4):</strong> Zero substring matches will be found, wasting CPU cycles and expanding the file by up to 3.5×.
+                      <div style={{ marginTop: '4px' }}>
+                        <span className="badge-alt">Use Instead:</span> Store raw bytes without compression (<code>STORE</code> mode).
+                      </div>
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                    <div>
+                      <strong>Continuous Analog Signals (Photographs, Audio, Video):</strong> Smooth continuous signals contain sensor noise and slight gradient variations where identical multi-byte substring matches almost never exist.
+                      <div style={{ marginTop: '4px' }}>
+                        <span className="badge-alt">Use Instead:</span> Transform coding like <strong>DCT (JPEG)</strong> or <strong>DWT (JPEG 2000)</strong>.
+                      </div>
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                    <div>
+                      <strong>Long-Distance Matches Separated Beyond the Sliding Horizon (&gt; 32 KB):</strong> If duplicate multi-kilobyte files or assets repeat megabytes apart, a 32 KB window cannot see them.
+                      <div style={{ marginTop: '4px' }}>
+                        <span className="badge-alt">Use Instead:</span> <strong>Zstandard Long Distance Matching (--long)</strong>, <strong>Brotli</strong>, or <strong>LZMA / 7-Zip</strong>.
+                      </div>
+                    </div>
+                  </li>
                 </ul>
               </div>
             </div>
