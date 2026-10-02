@@ -324,18 +324,26 @@ const ALGORITHMS_CATALOG = [
     whenNotToUse: 'Ultra-high-throughput in-memory caching requiring gigabytes-per-second memory bandwidth (use LZ4 or Zstd).'
   },
   {
-    id: 'lz78-lzw',
-    name: 'LZ78 & LZW (Trie Dictionary)',
+    id: 'lzw',
+    name: 'LZW (Lempel-Ziv-Welch) Dictionary',
     category: 'lossless',
     type: 'Dynamic Dictionary',
-    status: 'pending',
-    formula: 'Output: Dictionary Index [0..4095]',
-    ratio: '2:1 – 6:1',
-    desc: 'Maintains an explicit prefix trie dictionary built dynamically during encoding. Used historically in GIF images and Unix compress.',
-    pros: ['Fast single-pass dynamic dictionary learning', 'No lookahead window needed'],
-    flaws: ['Dictionary memory explosion requires freeze/flush logic', 'Patent dispute legacy'],
-    whenToUse: 'Single-pass dynamic dictionary streams without lookahead window limits (GIF, Unix compress).',
-    whenNotToUse: 'Massive datasets without dictionary flush logic where memory explodes beyond 4096 entries.'
+    status: 'ready',
+    formula: 'dict[P + c] = next_code++; Output(P)',
+    ratio: '2:1 – 5:1',
+    desc: 'Published by Terry Welch in 1984. Dynamically synthesizes a prefix dictionary during single-pass encoding. The decoder reconstructs the exact same dictionary in lock-step with zero transmitted dictionary overhead. Powers GIF images, TIFF, and Unix compress.',
+    pros: [
+      'Zero dictionary overhead transmitted over the wire',
+      'Lock-step deterministic decoder dictionary reconstruction',
+      'Ultra-fast O(N) streaming array lookups on decompression'
+    ],
+    flaws: [
+      'Requires KwKwK edge-case handling for repeating prefixes',
+      'Unbounded dictionary growth requires dictionary reset or freeze logic',
+      'Positive file expansion on short non-repeating data (+50% for 12-bit codes)'
+    ],
+    whenToUse: 'Palette-indexed 2D graphics (GIF), TIFF prepress imaging, legacy Unix compress (.Z), and deterministic embedded targets.',
+    whenNotToUse: 'Modern web text transmission where DEFLATE or Zstandard beats LZW by 25–40% in compression ratio.'
   },
   {
     id: 'bwt-mtf',
@@ -397,7 +405,7 @@ const ALGORITHMS_CATALOG = [
 ];
 
 // Valid routable views in the unified application
-const VALID_VIEWS = new Set(['matrix', 'prefix-tree', 'huffman', 'lz77', 'deflate']);
+const VALID_VIEWS = new Set(['matrix', 'prefix-tree', 'huffman', 'lz77', 'deflate', 'lzw']);
 
 // Universal URL & Route Resolver (supports #/algo, #algo, /algo, and browser history)
 function resolveRoute() {
@@ -421,6 +429,234 @@ function resolveRoute() {
 
   // 3. Fallback default to the data matrix
   return 'matrix';
+}
+
+// =========================================================================
+// LZW (LEMPEL-ZIV-WELCH) CONSTANTS & SIMULATION ENGINE
+// =========================================================================
+const LZW_PRESETS = {
+  user_abc: {
+    name: 'User Repetition (ABCABCABC)',
+    text: 'ABCABCABC',
+    desc: 'Clean 9-byte sequence demonstrating lock-step dictionary synchronization.'
+  },
+  classic_welch: {
+    name: 'Terry Welch Classic (1984)',
+    text: 'TOBEORNOTTOBEORTOBEORNOT#',
+    desc: 'The landmark test phrase from Terry Welch’s original 1984 IEEE paper.'
+  },
+  kwkwk_edge: {
+    name: 'KwKwK Edge Case (ABABABA)',
+    text: 'ABABABA',
+    desc: 'The famous unseen code edge case where new_code == dict.size().'
+  },
+  repeating_run: {
+    name: 'Cascading Run (AAAA...BBBB...)',
+    text: 'AAAAAAAAAAAAAAAABBBBBBBBBBBBBBBB',
+    desc: 'Rapidly compounding dictionary entries illustrating exponential phrase growth.'
+  },
+  html_markup: {
+    name: 'Structured HTML Markup',
+    text: '<div><span>CompressLab</span><span>CompressLab</span></div>',
+    desc: 'Real-world repeated XML/HTML tags and class names.'
+  }
+};
+
+/**
+ * Pure JavaScript simulation of the LZW Encoder & Decoder Engine.
+ * Accurately tracks step-by-step state for both encoder and decoder side-by-side.
+ */
+function runLzwSimulation(inputText, maxBits = 12) {
+  const maxDictSize = 1 << maxBits;
+  if (!inputText || inputText.length === 0) {
+    return {
+      rawBytes: 0,
+      rawBits: 0,
+      emittedCodes: [],
+      encoderSteps: [],
+      decoderSteps: [],
+      finalEncoderDict: {},
+      finalDecoderDict: [],
+      decodedStr: '',
+      stats: {
+        rawBytes: 0,
+        rawBits: 0,
+        codeBits: maxBits,
+        totalCodes: 0,
+        dictEntriesCreated: 0,
+        compressedPayloadBits: 0,
+        headerBits: 112,
+        totalCompressedBits: 112,
+        totalCompressedBytes: 14,
+        spaceSavingsPercent: '0.0',
+        compressionRatio: '1.00'
+      }
+    };
+  }
+
+  // 1. Initial 256 byte dictionary
+  const encoderDict = {};
+  for (let i = 0; i < 256; i++) {
+    encoderDict[String.fromCharCode(i)] = i;
+  }
+  let nextEncoderCode = 256;
+  const emittedCodes = [];
+  const encoderSteps = [];
+
+  let p = '';
+  for (let i = 0; i < inputText.length; i++) {
+    const c = inputText[i];
+    const combined = p + c;
+    if (encoderDict[combined] !== undefined) {
+      p = combined;
+      encoderSteps.push({
+        type: 'match',
+        charIdx: i,
+        char: c,
+        prefix: p,
+        emittedCode: null,
+        addedEntry: null,
+        newCode: null,
+        description: `Character '${c}' matches extended prefix "${p}" in dictionary.`
+      });
+    } else {
+      const code = encoderDict[p];
+      emittedCodes.push(code);
+      let added = null;
+      let newCode = null;
+      if (nextEncoderCode < maxDictSize) {
+        encoderDict[combined] = nextEncoderCode;
+        added = combined;
+        newCode = nextEncoderCode;
+        nextEncoderCode++;
+      }
+      encoderSteps.push({
+        type: 'emit',
+        charIdx: i,
+        char: c,
+        prefix: p,
+        emittedCode: code,
+        addedEntry: added,
+        newCode: newCode,
+        description: `Mismatch on "${combined}". Emitted code ${code} for prefix "${p}". Registered dictionary entry [${newCode}: "${combined}"]. Reset prefix to '${c}'.`
+      });
+      p = c;
+    }
+  }
+  if (p.length > 0) {
+    const code = encoderDict[p];
+    emittedCodes.push(code);
+    encoderSteps.push({
+      type: 'flush',
+      charIdx: inputText.length,
+      char: '',
+      prefix: p,
+      emittedCode: code,
+      addedEntry: null,
+      newCode: null,
+      description: `End of stream reached. Flushed final prefix "${p}" as code ${code}.`
+    });
+  }
+
+  // 2. Decoder state simulation (Zero dictionary transmitted over the wire!)
+  const decoderSteps = [];
+  const decoderDict = [];
+  for (let i = 0; i < 256; i++) {
+    decoderDict.push(String.fromCharCode(i));
+  }
+
+  let decodedStr = '';
+  if (emittedCodes.length > 0) {
+    const oldCode = emittedCodes[0];
+    let s = decoderDict[oldCode] !== undefined ? decoderDict[oldCode] : '?';
+    decodedStr += s;
+    decoderSteps.push({
+      stepIdx: 0,
+      receivedCode: oldCode,
+      stringEmitted: s,
+      addedEntry: null,
+      newCode: null,
+      isKwKwK: false,
+      reconstructedBuffer: decodedStr,
+      description: `Received first code ${oldCode} -> lookup in initial dictionary gives "${s}". Emitted "${s}".`
+    });
+
+    for (let i = 1; i < emittedCodes.length; i++) {
+      const newCode = emittedCodes[i];
+      let entry = '';
+      let isKwKwK = false;
+
+      if (newCode < decoderDict.length) {
+        entry = decoderDict[newCode];
+      } else if (newCode === decoderDict.length) {
+        // THE FAMOUS KwKwK / cScSc SPECIAL CASE:
+        // Encoder registered entry and immediately emitted it in the very next step.
+        isKwKwK = true;
+        entry = s + s[0];
+      } else {
+        entry = s + s[0]; // fallback safety
+      }
+
+      decodedStr += entry;
+      const newEntry = s + entry[0];
+      let assignedCode = null;
+      if (decoderDict.length < maxDictSize) {
+        assignedCode = decoderDict.length;
+        decoderDict.push(newEntry);
+      }
+
+      decoderSteps.push({
+        stepIdx: i,
+        receivedCode: newCode,
+        stringEmitted: entry,
+        addedEntry: newEntry,
+        newCode: assignedCode,
+        isKwKwK: isKwKwK,
+        reconstructedBuffer: decodedStr,
+        description: isKwKwK
+          ? `⚡ KwKwK Special Case! Code ${newCode} was not in dictionary yet! Encoder just registered and emitted it. Decoder computes: previous "${s}" + first("${s}") = "${entry}". Emitted "${entry}". Added [${assignedCode}: "${newEntry}"] to dictionary!`
+          : `Received code ${newCode} -> lookup gives "${entry}". Emitted "${entry}". Formed new dictionary entry: previous "${s}" + first("${entry}") = "${newEntry}" -> [${assignedCode}: "${newEntry}"].`
+      });
+
+      s = entry;
+    }
+  }
+
+  // 3. Mathematical reduction arithmetic
+  const rawBytes = inputText.length;
+  const rawBits = rawBytes * 8;
+  const codeBits = maxBits;
+  const totalCodes = emittedCodes.length;
+  const compressedPayloadBits = totalCodes * codeBits;
+  const headerBits = 14 * 8; // 14-byte container header
+  const totalCompressedBits = headerBits + compressedPayloadBits;
+  const totalCompressedBytes = Math.ceil(totalCompressedBits / 8);
+  const spaceSavingsPercent = rawBits > 0 ? (((rawBits - totalCompressedBits) / rawBits) * 100).toFixed(1) : '0.0';
+  const compressionRatio = totalCompressedBits > 0 ? (rawBits / totalCompressedBits).toFixed(2) : '1.00';
+
+  return {
+    rawBytes,
+    rawBits,
+    emittedCodes,
+    encoderSteps,
+    decoderSteps,
+    finalEncoderDict: encoderDict,
+    finalDecoderDict: decoderDict,
+    decodedStr,
+    stats: {
+      rawBytes,
+      rawBits,
+      codeBits,
+      totalCodes,
+      dictEntriesCreated: Math.max(0, nextEncoderCode - 256),
+      compressedPayloadBits,
+      headerBits,
+      totalCompressedBits,
+      totalCompressedBytes,
+      spaceSavingsPercent,
+      compressionRatio
+    }
+  };
 }
 
 export default function App() {
@@ -487,6 +723,21 @@ export default function App() {
   const [exploderLength, setExploderLength] = useState(9);
   const [exploderDistance, setExploderDistance] = useState(35);
 
+  // ----------------------------------------------------
+  // LZW (LEMPEL-ZIV-WELCH) DYNAMIC DICTIONARY STATE
+  // ----------------------------------------------------
+  const [lzwPresetKey, setLzwPresetKey] = useState('user_abc');
+  const [lzwInput, setLzwInput] = useState(LZW_PRESETS.user_abc.text);
+  const [lzwMaxBits, setLzwMaxBits] = useState(12);
+  const [lzwStepIdx, setLzwStepIdx] = useState(0);
+  const [lzwAnimPhase, setLzwAnimPhase] = useState('sync'); // 'sync' | 'kwkwk' | 'bitpacking' | 'matrix'
+  const [lzwIsAutoBuilding, setLzwIsAutoBuilding] = useState(false);
+  const [lzwVoiceEnabled, setLzwVoiceEnabled] = useState(true);
+  const lzwIsAutoBuildingRef = useRef(false);
+  const lzwSpeechTimeoutRef = useRef(null);
+
+  const lzwData = useMemo(() => runLzwSimulation(lzwInput, lzwMaxBits), [lzwInput, lzwMaxBits]);
+
   // Hovered byte info for interactive matrix inspection
   const [hoveredByteInfo, setHoveredByteInfo] = useState(null);
 
@@ -511,6 +762,8 @@ export default function App() {
       setLzIsAutoBuilding(false);
       deflateIsAutoBuildingRef.current = false;
       setDeflateIsAutoBuilding(false);
+      lzwIsAutoBuildingRef.current = false;
+      setLzwIsAutoBuilding(false);
 
       if (activeSpeechTimeoutRef.current) {
         clearTimeout(activeSpeechTimeoutRef.current);
@@ -523,6 +776,10 @@ export default function App() {
       if (deflateSpeechTimeoutRef.current) {
         clearTimeout(deflateSpeechTimeoutRef.current);
         deflateSpeechTimeoutRef.current = null;
+      }
+      if (lzwSpeechTimeoutRef.current) {
+        clearTimeout(lzwSpeechTimeoutRef.current);
+        lzwSpeechTimeoutRef.current = null;
       }
     };
 
@@ -556,6 +813,8 @@ export default function App() {
     setLzIsAutoBuilding(false);
     deflateIsAutoBuildingRef.current = false;
     setDeflateIsAutoBuilding(false);
+    lzwIsAutoBuildingRef.current = false;
+    setLzwIsAutoBuilding(false);
 
     if (activeSpeechTimeoutRef.current) {
       clearTimeout(activeSpeechTimeoutRef.current);
@@ -568,6 +827,10 @@ export default function App() {
     if (deflateSpeechTimeoutRef.current) {
       clearTimeout(deflateSpeechTimeoutRef.current);
       deflateSpeechTimeoutRef.current = null;
+    }
+    if (lzwSpeechTimeoutRef.current) {
+      clearTimeout(lzwSpeechTimeoutRef.current);
+      lzwSpeechTimeoutRef.current = null;
     }
 
     // 3. Update URL hash
@@ -1394,10 +1657,56 @@ export default function App() {
     }
   };
 
+  const handleLzwStepChange = (newIdx) => {
+    if (!lzwData.decoderSteps || newIdx < 0 || newIdx >= lzwData.decoderSteps.length) return;
+    setLzwStepIdx(newIdx);
+    if (lzwVoiceEnabled && lzwData.decoderSteps[newIdx]) {
+      speakWithCallback(lzwData.decoderSteps[newIdx].description, () => {
+        if (lzwIsAutoBuildingRef.current) {
+          if (newIdx < lzwData.decoderSteps.length - 1) {
+            handleLzwStepChange(newIdx + 1);
+          } else {
+            setLzwIsAutoBuilding(false);
+            lzwIsAutoBuildingRef.current = false;
+          }
+        }
+      });
+    }
+  };
+
+  const handleToggleLzwAutoBuild = () => {
+    if (lzwIsAutoBuilding) {
+      setLzwIsAutoBuilding(false);
+      lzwIsAutoBuildingRef.current = false;
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      if (lzwSpeechTimeoutRef.current) clearTimeout(lzwSpeechTimeoutRef.current);
+    } else {
+      setLzwIsAutoBuilding(true);
+      lzwIsAutoBuildingRef.current = true;
+      const startIdx = lzwStepIdx >= lzwData.decoderSteps.length - 1 ? 0 : lzwStepIdx;
+      setLzwStepIdx(startIdx);
+      if (lzwData.decoderSteps[startIdx]) {
+        speakWithCallback(lzwData.decoderSteps[startIdx].description, () => {
+          if (lzwIsAutoBuildingRef.current) {
+            if (startIdx < lzwData.decoderSteps.length - 1) {
+              handleLzwStepChange(startIdx + 1);
+            } else {
+              setLzwIsAutoBuilding(false);
+              lzwIsAutoBuildingRef.current = false;
+            }
+          }
+        });
+      }
+    }
+  };
+
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (activeSpeechTimeoutRef.current) clearTimeout(activeSpeechTimeoutRef.current);
+      if (lzSpeechTimeoutRef.current) clearTimeout(lzSpeechTimeoutRef.current);
+      if (deflateSpeechTimeoutRef.current) clearTimeout(deflateSpeechTimeoutRef.current);
+      if (lzwSpeechTimeoutRef.current) clearTimeout(lzwSpeechTimeoutRef.current);
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     };
   }, []);
@@ -4941,6 +5250,726 @@ export default function App() {
                       <strong>Massive Files with Long-Distance Repetitions (&gt; 32 KB Horizon):</strong> RFC 1951 restricts the sliding window horizon to 32 KB. Duplicate assets separated by megabytes cannot be referenced.
                       <div style={{ marginTop: '4px' }}>
                         <span className="badge-alt">Use Instead:</span> <strong>Zstandard Long Distance Matching (--long)</strong>, <strong>Brotli</strong>, or <strong>LZMA / 7-Zip</strong>.
+                      </div>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================================
+          VIEW 5: DEDICATED LZW (LEMPEL-ZIV-WELCH) DYNAMIC DICTIONARY & DECODER STUDIO
+          ========================================================================= */}
+      {currentView === 'lzw' && (
+        <div className="studio-container">
+          <div className="studio-header">
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <button 
+                  className="studio-breadcrumb" 
+                  onClick={() => navigateTo('matrix')} 
+                  style={{ margin: 0, padding: '4px 10px', fontSize: '0.78rem' }}>
+                  <ArrowLeft size={14} /> All Algorithms
+                </button>
+                <span className="status-chip ready" style={{ fontSize: '0.75rem' }}>
+                  Algorithm #9: Dynamic Dictionary (Welch 1984)
+                </span>
+                <span className="cxx-icon" style={{ fontSize: '0.75rem' }}>
+                  C++20
+                </span>
+                <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                  lossless/lzw/lzw.hpp
+                </span>
+              </div>
+              <h2 className="studio-title" style={{ marginTop: '10px' }}>
+                LZW: <span style={{ color: 'var(--accent-cyan)' }}>Dynamic Dictionary & Lock-Step Decoder Engine</span>
+              </h2>
+              <p className="studio-subtitle">
+                Visualizing Terry Welch's landmark 1984 algorithm: single-pass dynamic prefix dictionary synthesis where the decoder mirrors the encoder's dictionary state with <strong>zero transmitted codebook metadata</strong>.
+              </p>
+            </div>
+          </div>
+
+          {/* Navigation & Phase Tabs Bar */}
+          <div className="phase-tabs-bar" style={{ marginBottom: '20px' }}>
+            <button 
+              className={`phase-tab-btn ${lzwAnimPhase === 'sync' ? 'active' : ''}`}
+              onClick={() => setLzwAnimPhase('sync')}>
+              <Layers size={16} /> Phase 1: Dual-Stream Synchronized State Machine (Encoder & Decoder Lock-Step)
+            </button>
+            <button 
+              className={`phase-tab-btn ${lzwAnimPhase === 'kwkwk' ? 'active' : ''}`}
+              onClick={() => setLzwAnimPhase('kwkwk')}>
+              <AlertTriangle size={16} /> Phase 2: The KwKwK (Unseen Code) Special Case Lab
+            </button>
+            <button 
+              className={`phase-tab-btn ${lzwAnimPhase === 'bitpacking' ? 'active' : ''}`}
+              onClick={() => setLzwAnimPhase('bitpacking')}>
+              <Cpu size={16} /> Phase 3: Code Width & Variable Bit Packing Lab
+            </button>
+            <button 
+              className={`phase-tab-btn ${lzwAnimPhase === 'matrix' ? 'active' : ''}`}
+              onClick={() => setLzwAnimPhase('matrix')}>
+              <FileCode size={16} /> Phase 4: Real Document Data Matrix & Bitstream Audit
+            </button>
+          </div>
+
+          {/* Presets & Parameters Bar */}
+          <div className="anim-controls-bar" style={{ flexWrap: 'wrap', gap: '14px', justifyContent: 'space-between', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>Presets:</span>
+              {Object.entries(LZW_PRESETS).map(([key, item]) => (
+                <button
+                  key={key}
+                  className={`chip-btn ${lzwPresetKey === key ? 'active' : ''}`}
+                  style={lzwPresetKey === key ? { background: 'rgba(0, 242, 254, 0.2)', borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)' } : {}}
+                  onClick={() => {
+                    setLzwPresetKey(key);
+                    setLzwInput(item.text);
+                    setLzwStepIdx(0);
+                    setLzwIsAutoBuilding(false);
+                    lzwIsAutoBuildingRef.current = false;
+                    if (window.speechSynthesis) window.speechSynthesis.cancel();
+                  }}>
+                  {item.name}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                <span>Max Code Width:</span>
+                <select 
+                  value={lzwMaxBits} 
+                  onChange={e => { setLzwMaxBits(Number(e.target.value)); setLzwStepIdx(0); }}
+                  style={{ background: 'rgba(0,0,0,0.5)', color: '#fff', border: '1px solid var(--border-subtle)', borderRadius: '4px', padding: '4px 8px', fontSize: '0.8rem' }}>
+                  <option value={9}>9 Bits (512 entries)</option>
+                  <option value={10}>10 Bits (1,024 entries)</option>
+                  <option value={12}>12 Bits (4,096 entries, Standard)</option>
+                  <option value={16}>16 Bits (65,536 entries)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* =========================================================================
+              PHASE 1: DUAL-STREAM SYNCHRONIZED STATE MACHINE (ENCODER & DECODER LOCK-STEP)
+              ========================================================================= */}
+          {lzwAnimPhase === 'sync' && (
+            <div className="tree-animator-card">
+              {/* Animation Playback Controls Bar */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button 
+                    className="step-nav-btn"
+                    disabled={lzwStepIdx <= 0}
+                    onClick={() => handleLzwStepChange(lzwStepIdx - 1)}
+                    title="Step Backward">
+                    <StepBack size={16} />
+                  </button>
+
+                  <button 
+                    className="step-nav-btn play-btn"
+                    onClick={handleToggleLzwAutoBuild}
+                    style={{ background: lzwIsAutoBuilding ? 'rgba(255, 71, 87, 0.2)' : 'rgba(0, 242, 254, 0.2)', borderColor: lzwIsAutoBuilding ? 'var(--accent-rose)' : 'var(--accent-cyan)', color: lzwIsAutoBuilding ? 'var(--accent-rose)' : 'var(--accent-cyan)' }}
+                    title={lzwIsAutoBuilding ? "Pause Auto-Advancement" : "Play Synchronized Audio Auto-Advancement"}>
+                    {lzwIsAutoBuilding ? <Pause size={16} /> : <Play size={16} />}
+                  </button>
+
+                  <button 
+                    className="step-nav-btn"
+                    disabled={lzwStepIdx >= lzwData.decoderSteps.length - 1}
+                    onClick={() => handleLzwStepChange(lzwStepIdx + 1)}
+                    title="Step Forward">
+                    <StepForward size={16} />
+                  </button>
+
+                  <button 
+                    className="step-nav-btn"
+                    onClick={() => {
+                      setLzwStepIdx(0);
+                      setLzwIsAutoBuilding(false);
+                      lzwIsAutoBuildingRef.current = false;
+                      if (window.speechSynthesis) window.speechSynthesis.cancel();
+                    }}
+                    title="Reset to Beginning">
+                    <RotateCcw size={16} />
+                  </button>
+
+                  <button
+                    className={`step-nav-btn ${lzwVoiceEnabled ? 'active' : ''}`}
+                    onClick={() => {
+                      const next = !lzwVoiceEnabled;
+                      setLzwVoiceEnabled(next);
+                      if (!next && window.speechSynthesis) window.speechSynthesis.cancel();
+                    }}
+                    title={lzwVoiceEnabled ? "Mute Voice Narration" : "Enable Voice Narration"}>
+                    {lzwVoiceEnabled ? <Volume2 size={16} color="var(--accent-cyan)" /> : <VolumeX size={16} />}
+                  </button>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+                    Step <strong>{lzwStepIdx + 1}</strong> of <strong>{lzwData.decoderSteps.length}</strong>
+                  </span>
+                  <span className="status-chip ready" style={{ fontSize: '0.72rem' }}>
+                    <ShieldCheck size={12} /> 100% Lock-Step Sync
+                  </span>
+                </div>
+              </div>
+
+              {/* Step Narrator Callout Box */}
+              {lzwData.decoderSteps[lzwStepIdx] && (
+                <div style={{ background: 'rgba(0, 242, 254, 0.06)', border: '1px solid rgba(0, 242, 254, 0.25)', borderRadius: 'var(--radius-sm)', padding: '14px 18px', marginBottom: '22px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent-cyan)', fontWeight: 700, fontSize: '0.88rem', marginBottom: '6px' }}>
+                    <Info size={16} />
+                    <span>Synchronized Decoder Execution</span>
+                    {lzwData.decoderSteps[lzwStepIdx].isKwKwK && (
+                      <span className="status-chip" style={{ background: 'rgba(255, 170, 0, 0.2)', color: 'var(--accent-amber)', borderColor: 'var(--accent-amber)', fontSize: '0.68rem' }}>
+                        ⚡ KwKwK Edge Case Triggered!
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: '0.86rem', color: 'var(--text-primary)', lineHeight: 1.55 }}>
+                    {lzwData.decoderSteps[lzwStepIdx].description}
+                  </div>
+                </div>
+              )}
+
+              {/* Dual-Stream Side-by-Side Visualization Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 140px minmax(0, 1fr)', gap: '18px', alignItems: 'stretch' }}>
+                {/* 1. ENCODER ENGINE COLUMN */}
+                <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(0, 242, 254, 0.3)', borderRadius: 'var(--radius-sm)', padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '10px' }}>
+                    <h4 style={{ margin: 0, fontSize: '1rem', color: 'var(--accent-cyan)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Code2 size={16} /> Encoder Engine
+                    </h4>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Input: {lzwInput.length} B</span>
+                  </div>
+
+                  {/* Input Character Tape */}
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '6px' }}>Input Character Tape:</div>
+                    <div style={{ display: 'flex', gap: '4px', overflowX: 'auto', padding: '6px', background: 'rgba(255,255,255,0.02)', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      {lzwInput.split('').map((ch, idx) => {
+                        const isProcessed = idx <= lzwStepIdx;
+                        const isCurrent = idx === lzwStepIdx;
+                        return (
+                          <div 
+                            key={idx} 
+                            style={{ 
+                              minWidth: '28px', 
+                              height: '32px', 
+                              display: 'flex', 
+                              flexDirection: 'column', 
+                              alignItems: 'center', 
+                              justifyContent: 'center', 
+                              borderRadius: '3px',
+                              background: isCurrent ? 'rgba(0, 242, 254, 0.25)' : isProcessed ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.04)',
+                              border: isCurrent ? '1px solid var(--accent-cyan)' : isProcessed ? '1px solid rgba(16, 185, 129, 0.3)' : '1px solid transparent',
+                              color: isCurrent ? 'var(--accent-cyan)' : isProcessed ? '#fff' : 'var(--text-muted)',
+                              fontFamily: 'monospace',
+                              fontWeight: isCurrent ? 800 : 500,
+                              fontSize: '0.85rem'
+                            }}>
+                            {ch}
+                            <span style={{ fontSize: '0.55rem', opacity: 0.6 }}>{idx}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Encoder Dictionary Snapshot */}
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>Dynamic Dictionary:</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)' }}>
+                        256 Initial + {lzwData.stats.dictEntriesCreated} Added
+                      </span>
+                    </div>
+
+                    <div style={{ maxHeight: '220px', overflowY: 'auto', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '4px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', fontFamily: 'monospace' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                            <th style={{ padding: '4px 8px' }}>Code</th>
+                            <th style={{ padding: '4px 8px' }}>Phrase</th>
+                            <th style={{ padding: '4px 8px' }}>Origin</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', color: 'var(--text-muted)' }}>
+                            <td style={{ padding: '4px 8px' }}>0..255</td>
+                            <td style={{ padding: '4px 8px' }}>Single Bytes (0x00..0xFF)</td>
+                            <td style={{ padding: '4px 8px' }}>Pre-Agreed Base</td>
+                          </tr>
+                          {lzwData.decoderSteps.slice(1, lzwStepIdx + 1).map((s, idx) => {
+                            if (!s.newCode) return null;
+                            const isLatest = idx === lzwStepIdx - 1;
+                            return (
+                              <tr 
+                                key={s.newCode} 
+                                style={{ 
+                                  borderBottom: '1px solid rgba(255,255,255,0.03)',
+                                  background: isLatest ? 'rgba(0, 242, 254, 0.15)' : 'transparent'
+                                }}>
+                                <td style={{ padding: '4px 8px', color: 'var(--accent-cyan)', fontWeight: 700 }}>{s.newCode}</td>
+                                <td style={{ padding: '4px 8px', color: '#fff', fontWeight: 600 }}>"{s.addedEntry}"</td>
+                                <td style={{ padding: '4px 8px', color: 'var(--accent-emerald)', fontSize: '0.7rem' }}>Dynamic Prefix</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. THE SERIAL TRANSMISSION CHANNEL */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'rgba(10, 15, 29, 0.8)', border: '1px dashed rgba(0, 242, 254, 0.3)', borderRadius: 'var(--radius-sm)', padding: '12px 8px', textAlign: 'center', gap: '12px' }}>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--accent-cyan)', fontWeight: 700, letterSpacing: '0.05em' }}>
+                    TRANSMISSION CHANNEL
+                  </div>
+                  <ArrowRight size={20} color="var(--accent-cyan)" />
+
+                  <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Emitted Codes:</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '200px', overflowY: 'auto' }}>
+                      {lzwData.emittedCodes.map((code, idx) => {
+                        const isCurrent = idx === lzwStepIdx;
+                        const isPast = idx < lzwStepIdx;
+                        return (
+                          <div 
+                            key={idx}
+                            style={{ 
+                              padding: '4px 6px',
+                              borderRadius: '4px',
+                              fontSize: '0.78rem',
+                              fontFamily: 'monospace',
+                              fontWeight: 700,
+                              background: isCurrent ? 'rgba(0, 242, 254, 0.3)' : isPast ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255,255,255,0.03)',
+                              color: isCurrent ? 'var(--accent-cyan)' : isPast ? 'var(--accent-emerald)' : 'var(--text-muted)',
+                              border: isCurrent ? '1px solid var(--accent-cyan)' : '1px solid transparent'
+                            }}>
+                            #{idx}: <strong>{code}</strong>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div style={{ fontSize: '0.62rem', color: 'var(--text-muted)', lineHeight: 1.3, marginTop: 'auto' }}>
+                    🔒 Zero dictionary tables sent! Only codes cross the channel.
+                  </div>
+                </div>
+
+                {/* 3. DECODER ENGINE COLUMN */}
+                <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(16, 185, 129, 0.3)', borderRadius: 'var(--radius-sm)', padding: '18px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.08)', paddingBottom: '10px' }}>
+                    <h4 style={{ margin: 0, fontSize: '1rem', color: 'var(--accent-emerald)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Cpu size={16} /> Decoder Engine
+                    </h4>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      Reconstructed: {lzwData.decoderSteps[lzwStepIdx]?.reconstructedBuffer?.length || 0} B
+                    </span>
+                  </div>
+
+                  {/* Reconstructed Output Buffer */}
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '6px' }}>Reconstructed Output Buffer:</div>
+                    <div style={{ minHeight: '32px', display: 'flex', alignItems: 'center', padding: '6px 10px', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '4px', border: '1px solid rgba(16, 185, 129, 0.25)', fontFamily: 'monospace', fontSize: '0.9rem', color: '#fff', letterSpacing: '0.05em' }}>
+                      {lzwData.decoderSteps[lzwStepIdx]?.reconstructedBuffer || ''}
+                      <span style={{ display: 'inline-block', width: '8px', height: '14px', background: 'var(--accent-emerald)', marginLeft: '4px', animation: 'pulse 1s infinite' }} />
+                    </div>
+                  </div>
+
+                  {/* Decoder Reconstructed Dictionary */}
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 600 }}>Reconstructed Dictionary:</span>
+                      <span style={{ fontSize: '0.7rem', color: 'var(--accent-emerald)' }}>
+                        Lock-Step Mirror: {256 + Math.max(0, lzwStepIdx)} Entries
+                      </span>
+                    </div>
+
+                    <div style={{ maxHeight: '220px', overflowY: 'auto', background: 'rgba(0,0,0,0.3)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '4px' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', fontFamily: 'monospace' }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)', color: 'var(--text-muted)', textAlign: 'left' }}>
+                            <th style={{ padding: '4px 8px' }}>Code</th>
+                            <th style={{ padding: '4px 8px' }}>Phrase</th>
+                            <th style={{ padding: '4px 8px' }}>Derived From</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', color: 'var(--text-muted)' }}>
+                            <td style={{ padding: '4px 8px' }}>0..255</td>
+                            <td style={{ padding: '4px 8px' }}>Single Bytes (0x00..0xFF)</td>
+                            <td style={{ padding: '4px 8px' }}>Pre-Agreed Base</td>
+                          </tr>
+                          {lzwData.decoderSteps.slice(1, lzwStepIdx + 1).map((s, idx) => {
+                            if (!s.newCode) return null;
+                            const isLatest = idx === lzwStepIdx - 1;
+                            return (
+                              <tr 
+                                key={s.newCode} 
+                                style={{ 
+                                  borderBottom: '1px solid rgba(255,255,255,0.03)',
+                                  background: isLatest ? 'rgba(16, 185, 129, 0.15)' : 'transparent'
+                                }}>
+                                <td style={{ padding: '4px 8px', color: 'var(--accent-emerald)', fontWeight: 700 }}>{s.newCode}</td>
+                                <td style={{ padding: '4px 8px', color: '#fff', fontWeight: 600 }}>"{s.addedEntry}"</td>
+                                <td style={{ padding: '4px 8px', color: 'var(--text-muted)', fontSize: '0.7rem' }}>previous + first(current)</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =========================================================================
+              PHASE 2: THE KWKWK (UNSEEN CODE) SPECIAL CASE LAB
+              ========================================================================= */}
+          {lzwAnimPhase === 'kwkwk' && (
+            <div className="tree-animator-card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                <AlertTriangle size={24} color="var(--accent-amber)" />
+                <div>
+                  <h3 style={{ margin: 0, fontSize: '1.25rem', color: '#fff' }}>
+                    The Famous <span style={{ color: 'var(--accent-amber)' }}>KwKwK / cScSc</span> Decoder Edge Case
+                  </h3>
+                  <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                    Why the decoder receives a code that does not exist in its dictionary, and the mathematical rule that guarantees perfect recovery.
+                  </span>
+                </div>
+              </div>
+
+              {/* Theoretical Explanation Box */}
+              <div style={{ background: 'rgba(255, 170, 0, 0.06)', border: '1px solid rgba(255, 170, 0, 0.3)', borderRadius: 'var(--radius-sm)', padding: '18px', marginBottom: '22px' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '1rem', color: 'var(--accent-amber)' }}>
+                  1. When Does This Occur?
+                </h4>
+                <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 12px 0' }}>
+                  This phenomenon occurs whenever the input sequence contains repeating substrings of the form <strong>cScSc</strong> (where <code>c</code> is a single character and <code>S</code> is a string, e.g. <code>ABABABA</code> or <code>AAAAAAA</code>).
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', fontSize: '0.84rem' }}>
+                  <div style={{ background: 'rgba(0,0,0,0.4)', padding: '12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, marginBottom: '6px' }}>What the Encoder Did:</div>
+                    <ol style={{ margin: 0, paddingLeft: '18px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      <li>Encoder creates a brand new dictionary entry for <code>P + c</code> with code <code>K</code>.</li>
+                      <li>In the <em>very next character</em>, the input matches this brand new entry <code>K</code>!</li>
+                      <li>The encoder flushes or emits code <code>K</code> immediately.</li>
+                    </ol>
+                  </div>
+
+                  <div style={{ background: 'rgba(0,0,0,0.4)', padding: '12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ color: 'var(--accent-rose)', fontWeight: 700, marginBottom: '6px' }}>What the Decoder Sees:</div>
+                    <ol style={{ margin: 0, paddingLeft: '18px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      <li>Decoder receives code <code>K</code>.</li>
+                      <li>Decoder checks dictionary: <code>K</code> has not been added yet!</li>
+                      <li><code>newCode == decoderDict.length</code> (exactly 1 beyond dictionary horizon).</li>
+                    </ol>
+                  </div>
+
+                  <div style={{ background: 'rgba(0,0,0,0.4)', padding: '12px', borderRadius: '4px', border: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                    <div style={{ color: 'var(--accent-emerald)', fontWeight: 700, marginBottom: '6px' }}>The Mathematical Resolution:</div>
+                    <div style={{ color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                      Because the entry was formed in the immediate previous step and extended by 1 char:
+                      <div style={{ fontFamily: 'monospace', color: '#fff', background: 'rgba(16, 185, 129, 0.2)', padding: '6px 8px', borderRadius: '4px', margin: '6px 0', fontWeight: 700 }}>
+                        entry = previous + first(previous)
+                      </div>
+                      For <code>ABABABA</code>: <code>"AB" + "A" = "ABA"</code>!
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Concrete Step-by-Step KwKwK Proof */}
+              <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '18px' }}>
+                <h4 style={{ margin: '0 0 12px 0', fontSize: '0.95rem', color: '#fff' }}>
+                  Interactive Trace of KwKwK on Pattern "ABABABA":
+                </h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)', fontSize: '0.8rem' }}>
+                    <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, marginBottom: '4px' }}>Step 1: Code 65 ('A')</div>
+                    <div>Output: <strong>"A"</strong></div>
+                    <div>Set: <code>previous = "A"</code></div>
+                  </div>
+
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)', fontSize: '0.8rem' }}>
+                    <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, marginBottom: '4px' }}>Step 2: Code 66 ('B')</div>
+                    <div>Output: <strong>"B"</strong></div>
+                    <div>Added: <code>dict[256] = "AB"</code></div>
+                    <div>Set: <code>previous = "B"</code></div>
+                  </div>
+
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)', fontSize: '0.8rem' }}>
+                    <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, marginBottom: '4px' }}>Step 3: Code 256 ("AB")</div>
+                    <div>Output: <strong>"AB"</strong></div>
+                    <div>Added: <code>dict[257] = "BA"</code></div>
+                    <div>Set: <code>previous = "AB"</code></div>
+                  </div>
+
+                  <div style={{ background: 'rgba(255, 170, 0, 0.1)', padding: '12px', borderRadius: '4px', border: '1px solid var(--accent-amber)', fontSize: '0.8rem' }}>
+                    <div style={{ color: 'var(--accent-amber)', fontWeight: 700, marginBottom: '4px' }}>Step 4: Code 258 (UNSEEN!)</div>
+                    <div>Code 258 not in dict!</div>
+                    <div style={{ color: 'var(--accent-emerald)', fontWeight: 700 }}>
+                      Formula: "AB" + 'A' = "ABA"
+                    </div>
+                    <div>Output: <strong>"ABA"</strong>! Total: "ABABABA"</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =========================================================================
+              PHASE 3: CODE WIDTH & VARIABLE BIT PACKING LAB
+              ========================================================================= */}
+          {lzwAnimPhase === 'bitpacking' && (
+            <div className="tree-animator-card">
+              <h3 style={{ margin: '0 0 8px 0', fontSize: '1.25rem', color: '#fff' }}>
+                Code Bit-Width Capacity & Continuous Bitstream Packing
+              </h3>
+              <p style={{ fontSize: '0.86rem', color: 'var(--text-secondary)', margin: '0 0 20px 0' }}>
+                How variable integer codes are serialized into a binary container without byte boundary waste.
+              </p>
+
+              {/* Bit Width Horizons Table */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '22px' }}>
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
+                  <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, fontSize: '0.9rem', marginBottom: '4px' }}>9-Bit Codes</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff' }}>512 Entries</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Range: [0..511]. Codes 256..511 for 256 phrases.</div>
+                </div>
+
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
+                  <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, fontSize: '0.9rem', marginBottom: '4px' }}>10-Bit Codes</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff' }}>1,024 Entries</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Range: [0..1023]. Codes 256..1023 for 768 phrases.</div>
+                </div>
+
+                <div style={{ background: 'rgba(0, 242, 254, 0.08)', border: '1px solid var(--accent-cyan)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
+                  <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, fontSize: '0.9rem', marginBottom: '4px' }}>12-Bit Codes (Standard)</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff' }}>4,096 Entries</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Standard GIF / TIFF limit. 3,840 dynamic multi-byte phrases.</div>
+                </div>
+
+                <div style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '14px' }}>
+                  <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, fontSize: '0.9rem', marginBottom: '4px' }}>16-Bit Codes</div>
+                  <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#fff' }}>65,536 Entries</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Maximum supported dictionary depth for deep text archives.</div>
+                </div>
+              </div>
+
+              {/* Bitstream Packing Illustration */}
+              <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '18px' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '1rem', color: '#fff' }}>
+                  Bit-Packing Mechanism (12-Bit Packing Demonstration):
+                </h4>
+                <p style={{ fontSize: '0.84rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: '0 0 14px 0' }}>
+                  Two 12-bit integer codes fit exactly into 3 continuous 8-bit bytes ($2 \times 12 = 24\text{ bits} = 3\text{ bytes}$):
+                </p>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontFamily: 'monospace', fontSize: '0.82rem' }}>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <span style={{ minWidth: '120px', color: 'var(--accent-cyan)' }}>Code #0 (12b):</span>
+                    <span style={{ padding: '4px 8px', background: 'rgba(0, 242, 254, 0.15)', borderRadius: '4px', color: '#fff' }}>
+                      [ b11 b10 b9 b8 b7 b6 b5 b4 b3 b2 b1 b0 ]
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <span style={{ minWidth: '120px', color: 'var(--accent-emerald)' }}>Code #1 (12b):</span>
+                    <span style={{ padding: '4px 8px', background: 'rgba(16, 185, 129, 0.15)', borderRadius: '4px', color: '#fff' }}>
+                      [ c11 c10 c9 c8 c7 c6 c5 c4 c3 c2 c1 c0 ]
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginTop: '6px', paddingTop: '8px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                    <span style={{ minWidth: '120px', color: 'var(--accent-amber)' }}>Packed Bytes (3B):</span>
+                    <span style={{ padding: '4px 8px', background: 'rgba(255, 170, 0, 0.15)', borderRadius: '4px', color: '#fff' }}>
+                      Byte 0: [b7..b0] │ Byte 1: [c3..c0 b11..b8] │ Byte 2: [c11..c4]
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =========================================================================
+              PHASE 4: REAL DOCUMENT BENCHMARK & MATHEMATICAL SIZE REDUCTION AUDIT
+              ========================================================================= */}
+          {lzwAnimPhase === 'matrix' && (
+            <div className="tree-animator-card">
+              <h3 style={{ margin: '0 0 14px 0', fontSize: '1.25rem', color: '#fff' }}>
+                Mathematical Size Reduction Breakdown (Before vs. After Arithmetic)
+              </h3>
+
+              {/* 4-Way Comparison Cards */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '22px' }}>
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>1. Uncompressed Original</div>
+                  <div style={{ fontSize: '1.4rem', fontWeight: 800, color: '#fff', margin: '4px 0' }}>
+                    {lzwData.stats.rawBytes} Bytes
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{lzwData.stats.rawBits} raw bits (8b per char)</div>
+                </div>
+
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>2. LZW 9-Bit Fixed Codes</div>
+                  <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--accent-cyan)', margin: '4px 0' }}>
+                    {Math.ceil((lzwData.stats.totalCodes * 9) / 8)} Bytes
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{lzwData.stats.totalCodes * 9} payload bits</div>
+                </div>
+
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>3. LZW 12-Bit Fixed Codes</div>
+                  <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--accent-cyan)', margin: '4px 0' }}>
+                    {Math.ceil((lzwData.stats.totalCodes * 12) / 8)} Bytes
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{lzwData.stats.totalCodes * 12} payload bits</div>
+                </div>
+
+                <div style={{ background: 'rgba(0, 242, 254, 0.08)', border: '1px solid var(--accent-cyan)', borderRadius: 'var(--radius-sm)', padding: '16px' }}>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--accent-cyan)', fontWeight: 700 }}>4. LZW1 Binary Archive</div>
+                  <div style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--accent-emerald)', margin: '4px 0' }}>
+                    {lzwData.stats.totalCompressedBytes} Bytes
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{lzwData.stats.totalCompressedBits} bits (includes 14B container)</div>
+                </div>
+              </div>
+
+              {/* Exact Reduction Breakdown Audit */}
+              <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '18px' }}>
+                <h4 style={{ margin: '0 0 14px 0', fontSize: '1.05rem', color: '#fff' }}>
+                  Net Metric Calculation & Compression Summary:
+                </h4>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '14px', fontSize: '0.84rem' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>Input & Dictionary Synthesis</div>
+                    <div>Input Length: <strong>{lzwData.stats.rawBytes} bytes</strong> ({lzwData.stats.rawBits} bits)</div>
+                    <div>Total Codes Emitted: <strong>{lzwData.stats.totalCodes} codes</strong></div>
+                    <div>Phrases Synthesized: <strong>{lzwData.stats.dictEntriesCreated} multi-byte entries</strong></div>
+                  </div>
+
+                  <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '4px', border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ color: 'var(--text-muted)', marginBottom: '4px' }}>Overhead & Bit Allocation</div>
+                    <div>Container Header: <strong>{lzwData.stats.headerBits} bits</strong> (14 Bytes)</div>
+                    <div>Code Payload: <strong>{lzwData.stats.compressedPayloadBits} bits</strong> ({lzwData.stats.totalCodes} × {lzwData.stats.codeBits}b)</div>
+                    <div>Dictionary Overhead Sent: <strong style={{ color: 'var(--accent-emerald)' }}>0 bits (Lock-step synthesized!)</strong></div>
+                  </div>
+
+                  <div style={{ background: 'rgba(0, 242, 254, 0.05)', padding: '12px', borderRadius: '4px', border: '1px solid rgba(0, 242, 254, 0.2)' }}>
+                    <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, marginBottom: '4px' }}>Final Net Arithmetic</div>
+                    <div>Total Bits: <strong>{lzwData.stats.totalCompressedBits} bits</strong> ({lzwData.stats.totalCompressedBytes} B)</div>
+                    <div>Compression Ratio: <strong>{lzwData.stats.compressionRatio} : 1</strong></div>
+                    <div style={{ color: Number(lzwData.stats.spaceSavingsPercent) >= 0 ? 'var(--accent-emerald)' : 'var(--accent-rose)', fontWeight: 700, marginTop: '4px' }}>
+                      Space Savings: {lzwData.stats.spaceSavingsPercent}%
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =========================================================================
+              PRODUCTION ARCHITECTURE GUIDE: WHEN TO USE IT VS WHEN NOT TO USE IT
+              ========================================================================= */}
+          <div className="decision-guide-card">
+            <div className="decision-guide-header">
+              <div className="decision-guide-title">
+                <Zap size={22} color="var(--accent-cyan)" />
+                <span>Production Architecture Guide: When to Use vs. When NOT to Use</span>
+              </div>
+              <span className="algo-type-tag" style={{ color: 'var(--accent-cyan)', borderColor: 'rgba(0, 242, 254, 0.3)' }}>
+                LZW Dictionary Architecture
+              </span>
+            </div>
+
+            <div className="decision-guide-grid">
+              {/* When to Use Column */}
+              <div className="decision-col when-to-use">
+                <div className="decision-col-header">
+                  <CheckCircle2 size={20} />
+                  <span>When to Use LZW</span>
+                </div>
+                <ul className="decision-items-list">
+                  <li className="decision-item">
+                    <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                    <div>
+                      <strong>Palette-Indexed Graphics (GIF87a / GIF89a):</strong> The universal standard codec for 256-color palette animations and graphics with repeated color index runs.
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                    <div>
+                      <strong>Deterministic Legacy Embedded Systems:</strong> Decompression requires zero dynamic memory allocations, zero tree balancing, and simple array index lookups ($O(N)$ streaming throughput).
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                    <div>
+                      <strong>Prepress & Publishing Formats (TIFF / PostScript / PDF):</strong> TIFF image streams and PDF <code>/LZWDecode</code> filters where compatibility with historical publishing pipelines is mandatory.
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                    <div>
+                      <strong>Zero Patent Liability Today:</strong> The original Unisys LZW patents expired worldwide in 2003/2004, making LZW completely royalty-free and legally safe for modern codebases.
+                    </div>
+                  </li>
+                </ul>
+              </div>
+
+              {/* When NOT to Use Column */}
+              <div className="decision-col when-not-to-use">
+                <div className="decision-col-header">
+                  <XCircle size={20} />
+                  <span>When NOT to Use It & Alternatives</span>
+                </div>
+                <ul className="decision-items-list">
+                  <li className="decision-item">
+                    <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                    <div>
+                      <strong>Modern General-Purpose Text Compression:</strong> LZW was superseded by DEFLATE (1993) and Zstandard (2015), which achieve 25–40% higher compression ratios and faster decompression.
+                      <div style={{ marginTop: '4px' }}>
+                        <span className="badge-alt">Use Instead:</span> <strong>DEFLATE</strong> (GZIP) or <strong>Zstandard (Zstd)</strong>.
+                      </div>
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                    <div>
+                      <strong>Short Non-Repeating Sequences (Expansion Hazard):</strong> Emitting 12-bit integer codes for 8-bit non-repeating characters causes a severe $+50\%$ positive file expansion.
+                      <div style={{ marginTop: '4px' }}>
+                        <span className="badge-alt">Use Instead:</span> Store raw bytes (<code>STORE</code> mode).
+                      </div>
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                    <div>
+                      <strong>Continuous Analog Waveforms (Audio, Video, Photographs):</strong> Smooth continuous signals contain sensor noise with zero repeated multi-byte phrases.
+                      <div style={{ marginTop: '4px' }}>
+                        <span className="badge-alt">Use Instead:</span> Transform coding like <strong>DCT (JPEG)</strong> or <strong>FLAC</strong>.
+                      </div>
+                    </div>
+                  </li>
+                  <li className="decision-item">
+                    <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                    <div>
+                      <strong>Unbounded Memory Streams Without Dictionary Flushes:</strong> Without periodic dictionary flushes (Clear Codes), the dictionary freezes once 4096 entries are reached.
+                      <div style={{ marginTop: '4px' }}>
+                        <span className="badge-alt">Use Instead:</span> <strong>LZSS</strong> or <strong>LZ4</strong>.
                       </div>
                     </div>
                   </li>

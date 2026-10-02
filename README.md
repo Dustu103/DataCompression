@@ -25,7 +25,7 @@ Compression/
 │   ├── huffman/                   # Algorithm #2: Canonical Huffman Coding (RFC 1951)
 │   ├── lz77/                      # Algorithm #7: LZ77 Sliding Window Dictionary
 │   ├── deflate/                   # Algorithm #8: DEFLATE (LZ77 + Dual Canonical Huffman)
-│   ├── lz78_lzw/                  # Upcoming: LZ78 & LZW Trie Dictionary
+│   ├── lzw/                       # Algorithm #9: LZW (Lempel-Ziv-Welch) Dictionary
 │   ├── bwt_mtf/                   # Upcoming: Burrows-Wheeler Transform & MTF
 │   └── ans/                       # Upcoming: Asymmetric Numeral Systems (rANS / tANS)
 └── lossy/                         # Lossy Compression Algorithms
