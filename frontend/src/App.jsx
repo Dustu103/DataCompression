@@ -2742,6 +2742,34 @@ export default function App() {
                     )}
                   </div>
 
+                  {/* Dynamic Match Connection Bridge */}
+                  {lzSteps[lzStepIdx] && (
+                    lzSteps[lzStepIdx].bestLength > 0 ? (
+                      <div className="lz-match-arrow-banner">
+                        <div className="match-tag-src">
+                          <span>HISTORY MATCH:</span>
+                          <code>"{lzInput.substring(lzSteps[lzStepIdx].bestMatchPos, lzSteps[lzStepIdx].bestMatchPos + lzSteps[lzStepIdx].bestLength)}"</code>
+                          <span className="pos-badge">indices [{lzSteps[lzStepIdx].bestMatchPos}..{lzSteps[lzStepIdx].bestMatchPos + lzSteps[lzStepIdx].bestLength - 1}]</span>
+                        </div>
+                        <div className="match-arrow-center">
+                          <span className="arrow-dist-badge">◄ Step Back {lzSteps[lzStepIdx].bestDistance} Bytes into History ◄</span>
+                        </div>
+                        <div className="match-tag-tgt">
+                          <span>LOOKAHEAD TARGET:</span>
+                          <code>"{lzInput.substring(lzSteps[lzStepIdx].cursor, lzSteps[lzStepIdx].cursor + lzSteps[lzStepIdx].bestLength)}"</code>
+                          <span className="pos-badge">indices [{lzSteps[lzStepIdx].cursor}..{lzSteps[lzStepIdx].cursor + lzSteps[lzStepIdx].bestLength - 1}]</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="lz-no-match-banner">
+                        <Info size={16} color="var(--accent-rose)" />
+                        <span>
+                          <strong>Literal Token:</strong> Zero matching substring found in the {Math.max(0, lzSteps[lzStepIdx].searchEnd - lzSteps[lzStepIdx].searchStart + 1)}-byte history buffer. Emitting literal character <code>'{lzSteps[lzStepIdx].nextChar === ' ' ? '␣' : lzSteps[lzStepIdx].nextChar}'</code> with backward distance <code>d=0</code>, length <code>l=0</code>.
+                        </span>
+                      </div>
+                    )
+                  )}
+
                   <div className="lz-tape-scroll">
                     {lzInput.split('').map((ch, idx) => {
                       const curStep = lzSteps[lzStepIdx];
@@ -2854,6 +2882,58 @@ export default function App() {
                     </div>
                   </div>
                 )}
+
+                {/* 3 Tricky Concepts Demystified */}
+                <div className="lz-tricky-card">
+                  <div className="lz-tricky-title">
+                    <Zap size={20} color="var(--accent-cyan)" />
+                    <span>The 3 Tricky Concepts of LZ77 Demystified</span>
+                  </div>
+
+                  <div className="lz-tricky-grid">
+                    <div className="lz-tricky-col">
+                      <h5>1. Why Relative Distance, Not Absolute Index?</h5>
+                      <p>
+                        If we stored absolute file positions (e.g. index <code>1,489,200</code>), the distance field would grow without bound, requiring 32 to 64 bits per token!
+                      </p>
+                      <div className="code-diagram">
+                        distance = cursor - match_pos<br />
+                        Bounded by window W_s (4096B) → requires only 12 bits!
+                      </div>
+                      <p>
+                        During decoding, the receiver computes: <code>copy_pos = output.length - distance</code>.
+                      </p>
+                    </div>
+
+                    <div className="lz-tricky-col">
+                      <h5>2. The Self-Referential Trick (Length &gt; Distance)</h5>
+                      <p>
+                        How can match length be <code>100</code> when backward distance is only <code>1</code>?
+                      </p>
+                      <div className="code-diagram">
+                        Input: "ZZZZZZZZZZ" (10 times 'Z')<br />
+                        Step 1: Emit (d=0, l=0, 'Z')<br />
+                        Step 2: Emit (d=1, l=9, 'Z')
+                      </div>
+                      <p>
+                        Because the decompressor copies <strong>byte-by-byte</strong>! When it writes byte #1, that byte is instantly available to be copied for byte #2, which is copied for byte #3. This turns LZ77 into a Run-Length Coder!
+                      </p>
+                    </div>
+
+                    <div className="lz-tricky-col">
+                      <h5>3. Why DEFLATE & LZSS Were Invented</h5>
+                      <p>
+                        In classic LZ77, an uncompressed literal character costs <strong>28 bits</strong> (12b distance + 8b length + 8b char) to store an <strong>8-bit</strong> character!
+                      </p>
+                      <div className="code-diagram">
+                        8 bits raw → 28 bits token (+250% expansion!)
+                      </div>
+                      <p>
+                        <strong>LZSS</strong> solved this by adding a 1-bit flag (literal vs match), and <strong>DEFLATE</strong> compresses the tokens with Canonical Huffman codes!
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
