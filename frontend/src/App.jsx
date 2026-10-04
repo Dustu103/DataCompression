@@ -447,11 +447,11 @@ const ALGORITHMS_CATALOG = [
   },
   {
     id: 'zstd',
-    name: 'Zstandard (Meta Zstd: tANS + Repcodes)',
+    name: 'Zstandard (Meta Zstd: FSE + Repcodes)',
     section: 'compound',
     category: 'lossless',
     type: 'Modern High-Throughput Lossless',
-    status: 'pending',
+    status: 'ready',
     formula: 'FSE (Finite State Entropy) + Repcode History',
     ratio: '3:1 – 15:1 (GB/s Speed)',
     desc: 'Created by Yann Collet at Meta. Replaces Huffman with Finite State Entropy (FSE/tANS) and features ultra-fast repcode matching, scaling from ultra-fast realtime to maximum compression ratios.',
@@ -602,7 +602,7 @@ const ALGORITHMS_CATALOG = [
 ];
 
 // Valid routable views in the unified application
-const VALID_VIEWS = new Set(['matrix', 'prefix-tree', 'huffman', 'lz77', 'deflate', 'lzw', 'arithmetic', 'shannon-fano', 'ans']);
+const VALID_VIEWS = new Set(['matrix', 'prefix-tree', 'huffman', 'lz77', 'deflate', 'lzw', 'arithmetic', 'shannon-fano', 'ans', 'zstd']);
 
 // Universal URL & Route Resolver — reads clean pathname only (History API)
 function resolveRoute() {
@@ -976,6 +976,191 @@ function runShannonFanoSimulation(input) {
   const compressionRatio = (input.length * 8) / totalBits;
 
   return { table, splits, entropy, avgLen, huffmanAvgLen, originalBytes: input.length, encodedBits: totalBits, compressionRatio };
+}
+
+// =============================================================================
+// ZSTANDARD (FSE + LZ77 LAZY MATCH + REPCODES) CONSTANTS & SIMULATION ENGINE
+// =============================================================================
+const ZSTD_PRESETS = {
+  realtime: {
+    name: 'Real-time Database Entry',
+    text: 'user_id=42&session=abc123&action=login&ts=1727894400',
+    desc: 'Typical structured key-value payload. High literal entropy with short repeated keys.',
+    level: 1
+  },
+  repeated: {
+    name: 'Highly Repetitive Log Line',
+    text: 'ERROR ERROR ERROR WARNING INFO ERROR DEBUG ERROR ERROR WARNING',
+    desc: 'Log-file pattern with many repeated tokens — ideal repcode hit scenario.',
+    level: 3
+  },
+  genome: {
+    name: 'DNA Nucleotide Sequence',
+    text: 'ATCGATCGATCGATCGTAGCATCGATCGAATCGAATCGATCG',
+    desc: '4-symbol alphabet; FSE table saturates quickly with near-optimal coding.',
+    level: 3
+  },
+  source: {
+    name: 'C++ Source Code Snippet',
+    text: 'for(int i=0;i<n;i++){sum+=arr[i];}return sum;',
+    desc: 'Mixed tokens: keywords, operators, identifiers — realistic software compression workload.',
+    level: 6
+  },
+  english: {
+    name: 'English Natural Language',
+    text: 'the quick brown fox jumps over the lazy dog and the fox ran away',
+    desc: 'Natural English with high repcode hits on common short words like "the".',
+    level: 3
+  }
+};
+
+/**
+ * JavaScript simulation of Zstandard's core pipeline:
+ *  1. LZ77 lazy match parsing with a 3-register repcode history buffer
+ *  2. Sequence collection: (literals | offset | matchLen) triples
+ *  3. FSE (Finite State Entropy) frequency analysis for literal-lengths
+ *  4. Live compression metrics: ratio, entropy, literal/match distribution
+ */
+function runZstdSimulation(inputText) {
+  const input = String(inputText || '').slice(0, 200);
+  if (input.length === 0) return { sequences: [], metrics: {}, fseTable: [], literalFreq: {}, steps: [] };
+
+  // ── Step 1: Build frequency table ─────────────────────────────────────────
+  const charFreq = {};
+  for (const c of input) charFreq[c] = (charFreq[c] || 0) + 1;
+  const totalChars = input.length;
+
+  // Entropy of input
+  let entropy = 0;
+  for (const cnt of Object.values(charFreq)) {
+    const p = cnt / totalChars;
+    entropy -= p * Math.log2(p);
+  }
+
+  // ── Step 2: LZ77 Lazy Match Simulation ────────────────────────────────────
+  const MIN_MATCH = 3;
+  const WINDOW    = 256; // small window for JS sim
+  const sequences = [];
+  const steps     = [];
+  let pos = 0;
+  let litBuf = '';
+  const repBuf = [1, 4, 8]; // 3-repcode history
+  let repHits = 0;
+  let totalMatchBytes = 0;
+  let totalLitBytes   = 0;
+
+  const findMatch = (pos) => {
+    let bestLen = 0, bestOff = 0;
+    const start = Math.max(0, pos - WINDOW);
+    for (let ref = start; ref < pos; ref++) {
+      let mlen = 0;
+      while (mlen < 64 && pos + mlen < input.length && input[ref + mlen] === input[pos + mlen]) mlen++;
+      if (mlen >= MIN_MATCH && mlen > bestLen) { bestLen = mlen; bestOff = pos - ref; }
+    }
+    return bestLen >= MIN_MATCH ? { offset: bestOff, matchLen: bestLen } : null;
+  };
+
+  while (pos < input.length) {
+    const m = findMatch(pos);
+
+    // Lazy: try pos+1 if a longer match could exist
+    let usedMatch = m;
+    if (m && pos + 1 < input.length) {
+      const lazy = findMatch(pos + 1);
+      if (lazy && lazy.matchLen > m.matchLen) {
+        litBuf += input[pos++];
+        usedMatch = lazy;
+      }
+    }
+
+    if (usedMatch) {
+      const isRepcode = repBuf.includes(usedMatch.offset);
+      if (isRepcode) repHits++;
+
+      const seq = {
+        literals: litBuf,
+        offset: usedMatch.offset,
+        matchLen: usedMatch.matchLen,
+        matchText: input.slice(pos, pos + usedMatch.matchLen),
+        isRepcode,
+        pos
+      };
+      sequences.push(seq);
+      steps.push({
+        type: 'match',
+        pos,
+        litCount: litBuf.length,
+        offset: usedMatch.offset,
+        matchLen: usedMatch.matchLen,
+        matchText: seq.matchText,
+        isRepcode,
+        repBuf: [...repBuf]
+      });
+      totalMatchBytes += usedMatch.matchLen;
+      totalLitBytes   += litBuf.length;
+
+      // Update repcode buffer
+      if (!isRepcode) {
+        repBuf[2] = repBuf[1]; repBuf[1] = repBuf[0]; repBuf[0] = usedMatch.offset;
+      }
+      pos += usedMatch.matchLen;
+      litBuf = '';
+    } else {
+      steps.push({ type: 'literal', pos, char: input[pos], repBuf: [...repBuf] });
+      litBuf += input[pos++];
+    }
+  }
+  if (litBuf) {
+    sequences.push({ literals: litBuf, offset: 0, matchLen: 0, matchText: '', isRepcode: false, pos });
+    totalLitBytes += litBuf.length;
+    steps.push({ type: 'literal_flush', litCount: litBuf.length });
+  }
+
+  // ── Step 3: FSE Normalized Frequency Table (tANS) ─────────────────────────
+  const FSE_SIZE = 32; // small table for display
+  const fseTable = Object.entries(charFreq)
+    .sort((a, b) => b[1] - a[1])
+    .map(([sym, cnt]) => ({
+      sym,
+      rawFreq: cnt,
+      prob: (cnt / totalChars).toFixed(4),
+      normSlots: Math.max(1, Math.round((cnt / totalChars) * FSE_SIZE)),
+      bitsNeeded: (-Math.log2(cnt / totalChars)).toFixed(3)
+    }));
+
+  // ── Step 4: Compression metrics ───────────────────────────────────────────
+  const huffmanBits = Object.values(charFreq).reduce((acc, cnt) => {
+    const p = cnt / totalChars;
+    const codeLen = Math.max(1, Math.ceil(-Math.log2(p)));
+    return acc + cnt * codeLen;
+  }, 0);
+
+  const arithmeticBits = entropy * totalChars;
+  const fseBits        = (entropy + 0.002) * totalChars; // FSE near-optimal
+  const lz77MatchSavings = totalMatchBytes * entropy;
+  const estimatedZstdBits = (totalLitBytes * entropy) + sequences.filter(s => s.matchLen > 0).length * 16;
+
+  const metrics = {
+    inputLen: input.length,
+    totalChars,
+    uniqueSymbols: Object.keys(charFreq).length,
+    entropy: entropy.toFixed(4),
+    sequences: sequences.length,
+    matchSequences: sequences.filter(s => s.matchLen > 0).length,
+    totalLitBytes,
+    totalMatchBytes,
+    repHits,
+    matchRatio: totalChars > 0 ? ((totalMatchBytes / totalChars) * 100).toFixed(1) : '0',
+    huffmanBits: huffmanBits.toFixed(0),
+    arithmeticBits: arithmeticBits.toFixed(0),
+    fseBits: fseBits.toFixed(0),
+    estimatedZstdBits: estimatedZstdBits.toFixed(0),
+    estimatedZstdBytes: (estimatedZstdBits / 8).toFixed(1),
+    zstdRatio: estimatedZstdBits > 0 ? (input.length * 8 / estimatedZstdBits).toFixed(2) : '1.00',
+    lz77MatchSavings: lz77MatchSavings.toFixed(1)
+  };
+
+  return { sequences, metrics, fseTable, literalFreq: charFreq, steps, input };
 }
 
 // =============================================================================
@@ -1734,6 +1919,20 @@ export default function App() {
 
   const ansData = useMemo(() => runANSSimulation(ansInput, ansScaleBits), [ansInput, ansScaleBits]);
 
+  // ----------------------------------------------------
+  // ZSTANDARD (FSE + LZ77 REPCODES) STATE
+  // ----------------------------------------------------
+  const [zstdPresetKey, setZstdPresetKey] = useState('repeated');
+  const [zstdInput, setZstdInput] = useState(ZSTD_PRESETS.repeated.text);
+  const [zstdStepIdx, setZstdStepIdx] = useState(0);
+  const [zstdAnimPhase, setZstdAnimPhase] = useState('sequences'); // 'sequences' | 'fse' | 'compare' | 'theory'
+  const [zstdIsAutoBuilding, setZstdIsAutoBuilding] = useState(false);
+  const [zstdVoiceEnabled, setZstdVoiceEnabled] = useState(true);
+  const zstdIsAutoBuildingRef = useRef(false);
+  const zstdSpeechTimeoutRef = useRef(null);
+
+  const zstdData = useMemo(() => runZstdSimulation(zstdInput), [zstdInput]);
+
   // Hovered byte info for interactive matrix inspection
   const [hoveredByteInfo, setHoveredByteInfo] = useState(null);
 
@@ -1764,6 +1963,8 @@ export default function App() {
       setArithIsAutoBuilding(false);
       ansIsAutoBuildingRef.current = false;
       setAnsIsAutoBuilding(false);
+      zstdIsAutoBuildingRef.current = false;
+      setZstdIsAutoBuilding(false);
 
       if (activeSpeechTimeoutRef.current) {
         clearTimeout(activeSpeechTimeoutRef.current);
@@ -1788,6 +1989,10 @@ export default function App() {
       if (ansSpeechTimeoutRef.current) {
         clearTimeout(ansSpeechTimeoutRef.current);
         ansSpeechTimeoutRef.current = null;
+      }
+      if (zstdSpeechTimeoutRef.current) {
+        clearTimeout(zstdSpeechTimeoutRef.current);
+        zstdSpeechTimeoutRef.current = null;
       }
     };
 
@@ -1831,6 +2036,8 @@ export default function App() {
     setArithIsAutoBuilding(false);
     ansIsAutoBuildingRef.current = false;
     setAnsIsAutoBuilding(false);
+    zstdIsAutoBuildingRef.current = false;
+    setZstdIsAutoBuilding(false);
 
     if (activeSpeechTimeoutRef.current) {
       clearTimeout(activeSpeechTimeoutRef.current);
@@ -1855,6 +2062,10 @@ export default function App() {
     if (ansSpeechTimeoutRef.current) {
       clearTimeout(ansSpeechTimeoutRef.current);
       ansSpeechTimeoutRef.current = null;
+    }
+    if (zstdSpeechTimeoutRef.current) {
+      clearTimeout(zstdSpeechTimeoutRef.current);
+      zstdSpeechTimeoutRef.current = null;
     }
 
     // 3. Push a clean URL — no # prefix
@@ -9585,6 +9796,577 @@ export default function App() {
                         </li>
                       </ul>
                     </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* =========================================================
+          VIEW 10: ZSTANDARD (FSE + LZ77 + REPCODES) STUDIO
+          ========================================================= */}
+      {currentView === 'zstd' && (() => {
+        const { sequences, metrics, fseTable, literalFreq, steps, input: zstdInputResolved } = zstdData;
+        const totalSteps = steps.length;
+        const curStep = steps[zstdStepIdx] || null;
+
+        // Auto-build handler
+        const handleZstdAutoPlay = () => {
+          if (zstdIsAutoBuilding) {
+            zstdIsAutoBuildingRef.current = false;
+            setZstdIsAutoBuilding(false);
+            return;
+          }
+          if (zstdStepIdx >= totalSteps - 1) setZstdStepIdx(0);
+          zstdIsAutoBuildingRef.current = true;
+          setZstdIsAutoBuilding(true);
+          const advance = () => {
+            if (!zstdIsAutoBuildingRef.current) return;
+            setZstdStepIdx(prev => {
+              if (prev >= totalSteps - 1) {
+                zstdIsAutoBuildingRef.current = false;
+                setZstdIsAutoBuilding(false);
+                return prev;
+              }
+              const next = prev + 1;
+              zstdSpeechTimeoutRef.current = setTimeout(advance, 900);
+              return next;
+            });
+          };
+          zstdSpeechTimeoutRef.current = setTimeout(advance, 900);
+        };
+
+        // Colour helpers
+        const litColor   = '#38bdf8'; // sky-400
+        const matchColor = '#a78bfa'; // violet-400
+        const repColor   = '#fb923c'; // orange-400
+
+        return (
+          <div className="studio-view zstd-studio">
+            {/* ── HEADER ─────────────────────────────────── */}
+            <div className="studio-header">
+              <button className="back-btn" onClick={() => navigateTo('matrix')}>
+                ← Back to Architecture Matrix
+              </button>
+              <div className="studio-meta-label">
+                COMPOUND COMPRESSION · META ZSTANDARD (FSE/tANS + LZ77 REPCODES)
+              </div>
+              <h1 className="studio-title">Zstandard — Modern High-Throughput Lossless</h1>
+              <p className="studio-subtitle">
+                Created by Yann Collet at Meta (2015). Fuses LZ77 lazy-match sequence parsing with Finite State Entropy
+                (FSE/tANS) entropy coding, plus a unique 3-register repcode buffer that encodes repeated offsets for
+                free. Default compressor for Linux kernel, RocksDB, Kafka, and Facebook's global data infrastructure.
+              </p>
+
+              {/* Formula chip */}
+              <div className="formula-chip" style={{ marginTop: '12px' }}>
+                <code>{'Zstd = LZ77_Lazy(win=128KB) + RepBuf[3] + FSE(literals) + FSE(LL/ML/OF)'}</code>
+                <button
+                  className="chip-btn"
+                  onClick={() => navigateTo('ans')}
+                  style={{ fontSize: '11px', padding: '3px 10px', marginLeft: '10px' }}
+                >
+                  📚 Prerequisite: ANS Studio
+                </button>
+              </div>
+            </div>
+
+            {/* ── INPUT CONTROLS ─────────────────────────── */}
+            <div className="controls-bar" style={{ marginTop: '24px' }}>
+              <div className="control-group">
+                <label className="control-label">Preset Phrase</label>
+                <select
+                  className="control-select"
+                  value={zstdPresetKey}
+                  onChange={e => {
+                    const k = e.target.value;
+                    setZstdPresetKey(k);
+                    if (ZSTD_PRESETS[k]) setZstdInput(ZSTD_PRESETS[k].text);
+                    setZstdStepIdx(0);
+                  }}
+                >
+                  {Object.entries(ZSTD_PRESETS).map(([k, p]) => (
+                    <option key={k} value={k}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="control-group" style={{ flex: 1 }}>
+                <label className="control-label">Input Text Stream</label>
+                <input
+                  className="control-input"
+                  value={zstdInput}
+                  onChange={e => { setZstdInput(e.target.value); setZstdStepIdx(0); }}
+                  placeholder="Type any text to simulate Zstd pipeline…"
+                />
+              </div>
+            </div>
+
+            {/* ── PHASE TABS ─────────────────────────────── */}
+            <div className="phase-tabs" style={{ marginTop: '20px' }}>
+              {[
+                { id: 'sequences', label: '🔗 LZ77 Sequence Trace' },
+                { id: 'fse',       label: '📊 FSE Symbol Table' },
+                { id: 'compare',   label: '⚖️ Entropy Benchmark' },
+                { id: 'theory',    label: '📐 Theory & Pipeline' },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  className={`phase-tab ${zstdAnimPhase === tab.id ? 'active' : ''}`}
+                  onClick={() => setZstdAnimPhase(tab.id)}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {/* ─────────────────────────────────────────────
+                TAB 1: LZ77 SEQUENCE TRACE
+                ───────────────────────────────────────────── */}
+            {zstdAnimPhase === 'sequences' && (
+              <div className="zstd-seq-panel">
+                {/* Playback controls */}
+                <div className="playback-bar" style={{ marginBottom: '16px' }}>
+                  <button
+                    className={`auto-btn ${zstdIsAutoBuilding ? 'active' : ''}`}
+                    onClick={handleZstdAutoPlay}
+                  >
+                    {zstdIsAutoBuilding ? '⏸ Pause' : '▶ Auto-Scan'}
+                  </button>
+                  <button
+                    className="step-btn secondary"
+                    onClick={() => setZstdStepIdx(i => Math.max(0, i - 1))}
+                    disabled={zstdStepIdx === 0}
+                  >
+                    ← Step Back
+                  </button>
+                  <button
+                    className="step-btn primary"
+                    onClick={() => setZstdStepIdx(i => Math.min(totalSteps - 1, i + 1))}
+                    disabled={zstdStepIdx >= totalSteps - 1}
+                  >
+                    Step Forward →
+                  </button>
+                  <button
+                    className="step-btn secondary"
+                    onClick={() => { setZstdStepIdx(0); zstdIsAutoBuildingRef.current = false; setZstdIsAutoBuilding(false); }}
+                  >
+                    ↺ Reset
+                  </button>
+                  <span className="step-counter" style={{ marginLeft: '12px', opacity: 0.7, fontSize: '13px' }}>
+                    Step {zstdStepIdx + 1} / {totalSteps}
+                  </span>
+                </div>
+
+                {/* Input tape with cursor */}
+                <div className="zstd-tape-wrap">
+                  <div className="tape-label">Input Tape</div>
+                  <div className="zstd-tape">
+                    {(zstdInputResolved || '').split('').map((ch, i) => {
+                      const isActive = curStep && curStep.pos === i;
+                      return (
+                        <span
+                          key={i}
+                          className={`tape-cell ${isActive ? 'tape-active' : ''}`}
+                          title={`pos=${i} char=${ch}`}
+                        >
+                          {ch}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Repcode registers */}
+                <div className="zstd-regs-row">
+                  <span className="regs-label">RepBuf[3]:</span>
+                  {(curStep?.repBuf || [1, 4, 8]).map((v, i) => (
+                    <span key={i} className="reg-chip" style={{ background: i === 0 ? '#7c3aed33' : '#1e293b' }}>
+                      rep[{i}]={v}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Current step detail */}
+                {curStep && (
+                  <div className={`zstd-step-card ${curStep.type}`}>
+                    {curStep.type === 'literal' && (
+                      <>
+                        <span className="step-badge lit">LITERAL</span>
+                        <span style={{ color: litColor, fontWeight: 700, fontSize: '18px', margin: '0 8px' }}>
+                          '{curStep.char}'
+                        </span>
+                        <span style={{ opacity: 0.7 }}>→ buffered into literal stream at pos={curStep.pos}</span>
+                      </>
+                    )}
+                    {curStep.type === 'match' && (
+                      <>
+                        <span className={`step-badge ${curStep.isRepcode ? 'rep' : 'match'}`}>
+                          {curStep.isRepcode ? '⚡ REPCODE MATCH' : '🔗 MATCH'}
+                        </span>
+                        <span style={{ color: curStep.isRepcode ? repColor : matchColor, fontWeight: 700, marginLeft: '8px' }}>
+                          "{curStep.matchText}"
+                        </span>
+                        <div className="step-details">
+                          <span>offset=<strong>{curStep.offset}</strong></span>
+                          <span>matchLen=<strong>{curStep.matchLen}</strong></span>
+                          {curStep.litCount > 0 && <span>literals=<strong>{curStep.litCount}</strong> flushed</span>}
+                          {curStep.isRepcode && <span style={{ color: repColor }}>✓ rep[0] hit → no offset bits needed!</span>}
+                        </div>
+                      </>
+                    )}
+                    {curStep.type === 'literal_flush' && (
+                      <>
+                        <span className="step-badge lit">FINAL LITERALS</span>
+                        <span style={{ opacity: 0.7 }}>{curStep.litCount} trailing bytes flushed as literal sequence</span>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Sequence table */}
+                <div className="zstd-seq-table-wrap">
+                  <div className="seq-table-title">Parsed Sequences ({sequences.length})</div>
+                  <div className="zstd-seq-table">
+                    <div className="seq-row header">
+                      <span>#</span>
+                      <span>Literals</span>
+                      <span>Offset</span>
+                      <span>MatchLen</span>
+                      <span>Match Text</span>
+                      <span>RepCode?</span>
+                    </div>
+                    {sequences.slice(0, 30).map((seq, i) => (
+                      <div key={i} className={`seq-row ${seq.matchLen > 0 ? (seq.isRepcode ? 'repcode' : 'has-match') : 'lit-only'}`}>
+                        <span className="seq-num">{i + 1}</span>
+                        <span className="seq-lits" title={seq.literals}>
+                          {seq.literals ? `"${seq.literals.slice(0, 12)}${seq.literals.length > 12 ? '…' : ''}"` : '—'}
+                        </span>
+                        <span className="seq-offset">{seq.matchLen > 0 ? seq.offset : '—'}</span>
+                        <span className="seq-mlen">{seq.matchLen > 0 ? seq.matchLen : '—'}</span>
+                        <span className="seq-mtext" style={{ color: seq.isRepcode ? repColor : matchColor }}>
+                          {seq.matchText ? `"${seq.matchText.slice(0, 10)}"` : '—'}
+                        </span>
+                        <span className="seq-rep">
+                          {seq.matchLen > 0 ? (seq.isRepcode ? <span style={{ color: repColor }}>⚡ Yes</span> : 'No') : '—'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Summary stats */}
+                <div className="zstd-metrics-row">
+                  {[
+                    { label: 'Input Bytes',    val: metrics.totalChars,      color: '#94a3b8' },
+                    { label: 'Literal Bytes',  val: metrics.totalLitBytes,   color: litColor  },
+                    { label: 'Match Bytes',    val: metrics.totalMatchBytes,  color: matchColor },
+                    { label: 'Match Ratio',    val: metrics.matchRatio + '%', color: matchColor },
+                    { label: 'Repcode Hits',   val: metrics.repHits,          color: repColor  },
+                    { label: 'Sequences',      val: metrics.sequences,        color: '#a78bfa' },
+                  ].map(m => (
+                    <div key={m.label} className="metric-chip">
+                      <span className="metric-val" style={{ color: m.color }}>{m.val}</span>
+                      <span className="metric-key">{m.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ─────────────────────────────────────────────
+                TAB 2: FSE SYMBOL TABLE
+                ───────────────────────────────────────────── */}
+            {zstdAnimPhase === 'fse' && (
+              <div className="zstd-fse-panel">
+                <div className="panel-header-row">
+                  <h3 className="panel-title">Finite State Entropy (FSE / tANS) Symbol Table</h3>
+                  <p className="panel-desc">
+                    FSE normalizes raw symbol frequencies into <strong>{32}</strong> table slots (accuracy=5 bits).
+                    Each slot maps to exactly one state transition in the tANS automaton.
+                    Symbols with higher frequency receive more slots → fewer bits per occurrence → approaches Shannon entropy limit.
+                  </p>
+                </div>
+
+                {/* Visual slot bar */}
+                <div className="fse-bar-wrap">
+                  <div className="fse-bar-label">Normalized Slot Distribution ({fseTable.reduce((a, r) => a + r.normSlots, 0)} / 32 slots)</div>
+                  <div className="fse-slot-bar">
+                    {fseTable.map((row, i) => {
+                      const colors = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#0891b2','#c026d3','#65a30d'];
+                      return (
+                        <div
+                          key={i}
+                          className="fse-slot-seg"
+                          style={{
+                            flex: row.normSlots,
+                            background: colors[i % colors.length],
+                            minWidth: '2px'
+                          }}
+                          title={`'${row.sym}' → ${row.normSlots} slots`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="fse-slot-legend">
+                    {fseTable.slice(0, 8).map((row, i) => {
+                      const colors = ['#7c3aed','#2563eb','#059669','#d97706','#dc2626','#0891b2','#c026d3','#65a30d'];
+                      return (
+                        <span key={i} className="legend-item">
+                          <span className="legend-dot" style={{ background: colors[i % colors.length] }} />
+                          '{row.sym}'
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Symbol table */}
+                <div className="fse-table-wrap">
+                  <div className="fse-table">
+                    <div className="fse-row header">
+                      <span>Symbol</span>
+                      <span>Count</span>
+                      <span>Probability</span>
+                      <span>Norm Slots / 32</span>
+                      <span>Bits Needed</span>
+                      <span>Huffman Bits (ceil)</span>
+                      <span>FSE Saving</span>
+                    </div>
+                    {fseTable.map((row, i) => {
+                      const huffBits = Math.max(1, Math.ceil(parseFloat(row.bitsNeeded)));
+                      const fseBits  = parseFloat(row.bitsNeeded);
+                      const saving   = (huffBits - fseBits).toFixed(3);
+                      return (
+                        <div key={i} className={`fse-row ${i % 2 === 0 ? 'even' : ''}`}>
+                          <span className="sym-chip">'{row.sym === ' ' ? '·' : row.sym}'</span>
+                          <span>{row.rawFreq}</span>
+                          <span>{(parseFloat(row.prob) * 100).toFixed(1)}%</span>
+                          <span>
+                            <div className="mini-bar-wrap">
+                              <div className="mini-bar" style={{ width: `${(row.normSlots / 32) * 100}%` }} />
+                              <span>{row.normSlots}</span>
+                            </div>
+                          </span>
+                          <span>{row.bitsNeeded}</span>
+                          <span>{huffBits}</span>
+                          <span style={{ color: parseFloat(saving) > 0 ? '#4ade80' : '#94a3b8' }}>
+                            {parseFloat(saving) > 0 ? `−${saving}` : '0'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="fse-formula-box">
+                  <div className="formula-label">tANS State Update (Encode)</div>
+                  <code className="formula-code">
+                    {'x′ = spread_table[next_state[x % L_s]] where L_s = slot count for symbol s'}
+                  </code>
+                  <div className="formula-label" style={{ marginTop: '10px' }}>FSE vs Huffman Advantage</div>
+                  <code className="formula-code">
+                    {`Shannon entropy: ${metrics.entropy} bits/sym  |  FSE overhead: ~0.002 bits/sym  |  Huffman rounding: up to 1 bit/sym wasted`}
+                  </code>
+                </div>
+              </div>
+            )}
+
+            {/* ─────────────────────────────────────────────
+                TAB 3: ENTROPY BENCHMARK
+                ───────────────────────────────────────────── */}
+            {zstdAnimPhase === 'compare' && (
+              <div className="zstd-compare-panel">
+                <div className="panel-header-row">
+                  <h3 className="panel-title">Compressed Size Comparison</h3>
+                  <p className="panel-desc">
+                    Estimated output bits for each algorithm on the current input.
+                    Zstd benefits from both entropy coding (FSE) AND match elimination (LZ77).
+                  </p>
+                </div>
+
+                {/* Bar chart */}
+                {(() => {
+                  const rawBits   = metrics.totalChars * 8;
+                  const hBits     = parseInt(metrics.huffmanBits);
+                  const aBits     = parseFloat(metrics.arithmeticBits);
+                  const fBits     = parseFloat(metrics.fseBits);
+                  const zBits     = parseFloat(metrics.estimatedZstdBits);
+                  const maxBits   = Math.max(rawBits, hBits, aBits, fBits, zBits) || 1;
+
+                  const bars = [
+                    { label: 'Raw (8 bit/sym)',     bits: rawBits, color: '#475569' },
+                    { label: 'Huffman',              bits: hBits,   color: '#2563eb' },
+                    { label: 'Arithmetic',           bits: aBits,   color: '#059669' },
+                    { label: 'FSE / ANS (literals)', bits: fBits,   color: '#7c3aed' },
+                    { label: 'Zstd (FSE + LZ77)',    bits: zBits,   color: '#f59e0b' },
+                  ];
+
+                  return (
+                    <div className="compare-chart">
+                      {bars.map((b, i) => (
+                        <div key={i} className="compare-row">
+                          <div className="compare-label">{b.label}</div>
+                          <div className="compare-bar-track">
+                            <div
+                              className="compare-bar-fill"
+                              style={{ width: `${(b.bits / maxBits) * 100}%`, background: b.color }}
+                            />
+                          </div>
+                          <div className="compare-val">
+                            {b.bits.toFixed(0)} bits
+                            <span className="compare-ratio">
+                              ({(metrics.totalChars * 8 / b.bits).toFixed(2)}x)
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {/* Metric grid */}
+                <div className="zstd-metrics-grid">
+                  {[
+                    { label: 'Input Characters',  val: metrics.totalChars,         unit: 'chars'   },
+                    { label: 'Unique Symbols',     val: metrics.uniqueSymbols,      unit: 'symbols' },
+                    { label: 'Shannon Entropy',    val: metrics.entropy,            unit: 'bits/sym'},
+                    { label: 'Literal Bytes',      val: metrics.totalLitBytes,      unit: 'bytes'   },
+                    { label: 'Match Bytes Saved',  val: metrics.totalMatchBytes,    unit: 'bytes'   },
+                    { label: 'Repcode Hits',       val: metrics.repHits,            unit: 'free'    },
+                    { label: 'Match Ratio',        val: metrics.matchRatio + '%',   unit: ''        },
+                    { label: 'Est. Zstd Output',   val: metrics.estimatedZstdBytes, unit: 'bytes'   },
+                    { label: 'Zstd Ratio',         val: metrics.zstdRatio + 'x',   unit: ''        },
+                    { label: 'LZ77 Match Savings', val: metrics.lz77MatchSavings,  unit: 'bits'    },
+                  ].map(m => (
+                    <div key={m.label} className="metric-grid-cell">
+                      <span className="mgc-val">{m.val}</span>
+                      <span className="mgc-unit">{m.unit}</span>
+                      <span className="mgc-label">{m.label}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ─────────────────────────────────────────────
+                TAB 4: THEORY & PIPELINE
+                ───────────────────────────────────────────── */}
+            {zstdAnimPhase === 'theory' && (
+              <div className="zstd-theory-panel">
+                <div className="panel-header-row">
+                  <h3 className="panel-title">Zstandard Architecture &amp; Theory</h3>
+                </div>
+
+                {/* Pipeline diagram */}
+                <div className="zstd-pipeline">
+                  {[
+                    { step: '1', label: 'Block Splitter', desc: 'Input divided into ≤128KB blocks. Each block independently compressed.', color: '#2563eb' },
+                    { step: '2', label: 'LZ77 Parser', desc: 'Lazy match search using hash chains. Outputs (Literals | Offset | MatchLen) sequences.', color: '#7c3aed' },
+                    { step: '3', label: 'RepCode Buffer', desc: '3-register offset history. A repeated offset is encoded in 0 bits — the greatest Zstd innovation.', color: '#f59e0b' },
+                    { step: '4', label: 'FSE Encoder (Literals)', desc: 'Huffman-like table but fractional: encodes literals at Shannon entropy with no rounding loss.', color: '#059669' },
+                    { step: '5', label: 'FSE Encoder (LL/ML/OF)', desc: 'Literal Lengths, Match Lengths, and Offsets each get their own independent FSE table.', color: '#0891b2' },
+                    { step: '6', label: 'Frame Wrapper', desc: '4-byte magic (0xFD2FB528) + frame header + optional checksum. Supports multi-frame streaming.', color: '#dc2626' },
+                  ].map((s, i) => (
+                    <div key={i} className="pipeline-node" style={{ borderLeftColor: s.color }}>
+                      <span className="pn-step" style={{ background: s.color }}>Step {s.step}</span>
+                      <span className="pn-label">{s.label}</span>
+                      <span className="pn-desc">{s.desc}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Key innovations */}
+                <div className="theory-innovations">
+                  <div className="innov-title">The 3 Breakthrough Innovations of Zstandard</div>
+                  {[
+                    {
+                      icon: '⚡',
+                      title: '3-Register RepCode Buffer',
+                      body: 'Zstd maintains the last 3 used match offsets in a register bank (rep[0], rep[1], rep[2]). When a new match has an offset equal to any of these three, the offset is encoded using just 1–2 bits instead of the full log₂(offset) bits. On highly repetitive data (logs, databases, source code), up to 40% of matches are repcode hits, contributing enormous savings at near-zero entropy cost.'
+                    },
+                    {
+                      icon: '📊',
+                      title: 'Finite State Entropy (FSE / tANS)',
+                      body: 'Replaces Huffman with a table-based ANS (Asymmetric Numeral Systems) variant. Unlike Huffman which wastes bits on the 1-bit ceiling (e.g., a symbol with p=0.6 gets 1 bit instead of 0.74 bits), FSE outputs fractional bits by encoding across state boundaries. At decompression speeds of 1–5 GB/s, FSE uses simple array lookups — no arithmetic operations needed.'
+                    },
+                    {
+                      icon: '📚',
+                      title: 'Trained Dictionary Support',
+                      body: 'Zstd can pre-train a custom dictionary on a corpus of similar data (e.g., all JSON API responses from a service). The dictionary is injected as virtual match history before block decompression, allowing even tiny ~100-byte payloads (normally incompressible) to achieve 5:1 ratios. RocksDB and Kafka use this for column-level dictionaries.'
+                    },
+                  ].map((inn, i) => (
+                    <div key={i} className="innov-card">
+                      <div className="innov-icon">{inn.icon}</div>
+                      <div className="innov-body">
+                        <div className="innov-card-title">{inn.title}</div>
+                        <p className="innov-text">{inn.body}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Compression levels */}
+                <div className="theory-levels">
+                  <div className="levels-title">Zstd Compression Level Overview</div>
+                  <div className="levels-table">
+                    {[
+                      { level: '1',  profile: 'Ultra-Fast',   speed: '~500 MB/s', ratio: '2.5:1', usecase: 'Real-time network (Kafka, gRPC)' },
+                      { level: '3',  profile: 'Default',      speed: '~250 MB/s', ratio: '3.5:1', usecase: 'Linux kernel, Docker layers' },
+                      { level: '6',  profile: 'Balanced',     speed: '~60 MB/s',  ratio: '4.5:1', usecase: 'Database backups (RocksDB)' },
+                      { level: '19', profile: 'High Ratio',   speed: '~5 MB/s',   ratio: '6:1',   usecase: 'Software distribution packages' },
+                      { level: '22', profile: 'Maximum',      speed: '~1 MB/s',   ratio: '7:1+',  usecase: 'Archive / cold storage' },
+                    ].map((r, i) => (
+                      <div key={i} className="level-row">
+                        <span className="level-badge">L{r.level}</span>
+                        <span className="level-profile">{r.profile}</span>
+                        <span className="level-speed">{r.speed}</span>
+                        <span className="level-ratio">{r.ratio}</span>
+                        <span className="level-use">{r.usecase}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Use / not-use */}
+                <div className="decision-grid" style={{ marginTop: '28px' }}>
+                  <div className="decision-column use">
+                    <div className="decision-column-title">
+                      <CheckCircle size={20} /><span>When to Use Zstd</span>
+                    </div>
+                    <ul className="decision-items-list">
+                      {[
+                        { title: 'Real-Time Streaming (Level 1–3)', body: 'Outperforms LZ4 on ratio while maintaining GB/s decompression throughput — used by Meta, Netflix Kafka pipelines.' },
+                        { title: 'Database Column Storage', body: 'RocksDB default since 2017; trained dictionaries on column data achieve 5–10x on small records.' },
+                        { title: 'Container & OS Distribution', body: 'Docker layer compression, Linux kernel modules (.ko.zst), Arch Linux packages use Zstd by default.' },
+                        { title: 'Replacing GZIP/zlib', body: '3–5x faster decompression, 10–20% better ratio at equivalent speed — drop-in for most server workloads.' },
+                      ].map((it, i) => (
+                        <li key={i} className="decision-item">
+                          <CheckCircle size={16} className="item-icon" color="var(--accent-emerald)" />
+                          <div><strong>{it.title}:</strong> {it.body}</div>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="decision-column avoid">
+                    <div className="decision-column-title">
+                      <XCircle size={20} /><span>When NOT to Use</span>
+                    </div>
+                    <ul className="decision-items-list">
+                      {[
+                        { title: 'Legacy Format Compliance (ZIP/PNG)', body: 'ZIP, PNG, PDF mandate DEFLATE. Zstd is not part of these specs. Use Instead: Canonical Huffman / DEFLATE.' },
+                        { title: 'Ultra-Low Memory Microcontrollers', body: 'Zstd FSE tables require 1–4 KB RAM; full window needs 128 KB. Use Instead: LZ4 or raw Huffman.' },
+                        { title: 'Maximum Compression (Cold Archive)', body: 'At Level 22 Zstd is excellent, but LZMA/XZ with its Markov-chain context model wins on pure ratio. Use Instead: LZMA2 / 7-Zip.' },
+                      ].map((it, i) => (
+                        <li key={i} className="decision-item">
+                          <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                          <div><strong>{it.title}:</strong> {it.body}
+                            <div style={{ marginTop: '4px' }}><span className="badge-alt">Use Instead:</span> <strong>{it.body.split('Use Instead: ')[1] || 'Alternative'}</strong></div>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
                 </div>
               </div>
