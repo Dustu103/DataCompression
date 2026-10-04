@@ -404,7 +404,7 @@ const ALGORITHMS_CATALOG = [
     section: 'entropy',
     category: 'lossless',
     type: 'State-of-the-Art Entropy',
-    status: 'pending',
+    status: 'ready',
     formula: 'x\' = C(s, x) = ⌊x / l_s⌋ · M + b_s + (x mod l_s)',
     ratio: '2:1 – 5:1',
     desc: 'Created by Jarosław Duda in 2006. Powers modern Zstandard (Meta) and Apple LZFSE. Delivers the exact compression density of Arithmetic coding at the multi-gigabyte-per-second speed of Huffman table lookups.',
@@ -602,7 +602,7 @@ const ALGORITHMS_CATALOG = [
 ];
 
 // Valid routable views in the unified application
-const VALID_VIEWS = new Set(['matrix', 'prefix-tree', 'huffman', 'lz77', 'deflate', 'lzw', 'arithmetic', 'shannon-fano']);
+const VALID_VIEWS = new Set(['matrix', 'prefix-tree', 'huffman', 'lz77', 'deflate', 'lzw', 'arithmetic', 'shannon-fano', 'ans']);
 
 // Universal URL & Route Resolver — reads clean pathname only (History API)
 function resolveRoute() {
@@ -976,6 +976,342 @@ function runShannonFanoSimulation(input) {
   const compressionRatio = (input.length * 8) / totalBits;
 
   return { table, splits, entropy, avgLen, huffmanAvgLen, originalBytes: input.length, encodedBits: totalBits, compressionRatio };
+}
+
+// =============================================================================
+// ASYMMETRIC NUMERAL SYSTEMS (ANS / rANS) CONSTANTS & SIMULATION ENGINE
+// =============================================================================
+const ANS_PRESETS = {
+  biased: {
+    name: 'Skewed Alpha Bias (AABBBCCCCDDDDDEEEEEEE)',
+    text: 'AABBBCCCCDDDDDEEEEEEE',
+    desc: 'Classic test phrase demonstrating exponential symbol probability distribution and state transitions.'
+  },
+  skewed: {
+    name: 'Highly Skewed (90% A, 10% B)',
+    text: 'AAAAAAAAAABAAAAAAAAAAB',
+    desc: 'Bypasses the Huffman 1-bit floor: fractional bits are packed with zero overhead inside integer state x.'
+  },
+  welch: {
+    name: 'Terry Welch Classic Phrase',
+    text: 'TOBEORNOTTOBEORTOBEORNOT',
+    desc: 'Landmark benchmark demonstrating LIFO encoding and bit-exact state contraction on decode.'
+  },
+  dna: {
+    name: 'Genomic DNA Nucleotides (A, C, G, T)',
+    text: 'ACGTACGTTAGCTA',
+    desc: 'Small 4-symbol alphabet with fractional entropy convergence.'
+  },
+  zstd: {
+    name: 'Meta Zstandard & Apple LZFSE Demo',
+    text: 'Zstandard FSE is blazing fast!',
+    desc: 'Mixed alphanumeric sentence showing multi-byte streaming and state transitions.'
+  }
+};
+
+/**
+ * Pure JavaScript simulation of Asymmetric Numeral Systems (rANS / tANS model).
+ * Computes exact state transitions x' = floor(x / l_s) * M + b_s + (x mod l_s),
+ * byte renormalizations, LIFO duality, and live comparisons against Huffman & Arithmetic Coding.
+ */
+function runANSSimulation(inputText, scaleBits = 10) {
+  const M = 1 << scaleBits; // e.g. 1024 or 4096
+  const L = 65536;          // Lower bound: x in [L, 256*L - 1] = [65536, 16777215]
+  const b = 256;
+
+  if (!inputText || inputText.length === 0) {
+    return {
+      rawBytes: 0,
+      rawBits: 0,
+      entropy: 0,
+      M,
+      L,
+      symbolTable: [],
+      encodeSteps: [],
+      decodeSteps: [],
+      tAnsTable: [],
+      finalState: L,
+      emittedBytes: [],
+      reconstructedStr: '',
+      stats: {
+        rawBytes: 0,
+        rawBits: 0,
+        entropy: '0.000',
+        ansPayloadBits: 0,
+        headerBits: 40,
+        totalCompressedBits: 40,
+        totalCompressedBytes: 5,
+        spaceSavingsPercent: '0.0',
+        compressionRatio: '1.00',
+        huffmanAvgBits: 0
+      }
+    };
+  }
+
+  const rawBytes = inputText.length;
+  const rawBits = rawBytes * 8;
+
+  // 1. Symbol frequency counts
+  const counts = {};
+  for (const ch of inputText) counts[ch] = (counts[ch] || 0) + 1;
+  const distinctChars = Object.keys(counts).sort();
+
+  // Shannon entropy
+  let entropy = 0;
+  for (const ch of distinctChars) {
+    const p = counts[ch] / rawBytes;
+    entropy -= p * Math.log2(p);
+  }
+
+  // 2. Frequency quantization such that sum(l_s) = M, l_s >= 1
+  const freqs = {};
+  let allocated = 0;
+  for (const ch of distinctChars) {
+    const f = Math.max(1, Math.round((counts[ch] * (M - distinctChars.length)) / rawBytes) + 1);
+    freqs[ch] = f;
+    allocated += f;
+  }
+  while (allocated !== M) {
+    if (allocated < M) {
+      let maxCh = distinctChars[0];
+      for (const ch of distinctChars) if (freqs[ch] > freqs[maxCh]) maxCh = ch;
+      freqs[maxCh]++;
+      allocated++;
+    } else {
+      let maxCh = distinctChars[0];
+      for (const ch of distinctChars) if (freqs[ch] > 1 && freqs[ch] > freqs[maxCh]) maxCh = ch;
+      freqs[maxCh]--;
+      allocated--;
+    }
+  }
+
+  // Cumulative frequencies b_s
+  const cumFreqs = {};
+  let cum = 0;
+  for (const ch of distinctChars) {
+    cumFreqs[ch] = cum;
+    cum += freqs[ch];
+  }
+
+  // Symbol table entries
+  const symbolTable = distinctChars.map(ch => {
+    const count = counts[ch];
+    const prob = count / rawBytes;
+    const l_s = freqs[ch];
+    const b_s = cumFreqs[ch];
+    const idealBits = -Math.log2(prob);
+    const ansAllocBits = -Math.log2(l_s / M);
+    return {
+      char: ch,
+      charDisplay: ch === ' ' ? '␣' : ch,
+      count,
+      prob,
+      l_s,
+      b_s,
+      idealBits,
+      ansAllocBits
+    };
+  });
+
+  // Fast slot lookup map for decoder
+  const slotToSym = new Array(M);
+  for (const entry of symbolTable) {
+    for (let j = 0; j < entry.l_s; j++) {
+      slotToSym[entry.b_s + j] = entry.char;
+    }
+  }
+
+  // Byte renormalization threshold per symbol:
+  // max_x = ((L / M) * 256) * l_s
+  const maxX = {};
+  for (const ch of distinctChars) {
+    maxX[ch] = Math.floor((L / M) * 256) * freqs[ch];
+  }
+
+  // 3. Encoder Simulation (LIFO order: processes input in REVERSE)
+  let x = L;
+  const emittedBytes = [];
+  const encodeSteps = [];
+
+  for (let i = rawBytes - 1; i >= 0; i--) {
+    const ch = inputText[i];
+    const charDisplay = ch === ' ' ? '␣' : ch;
+    const l_s = freqs[ch];
+    const b_s = cumFreqs[ch];
+    const stateBefore = x;
+    const stepEmitted = [];
+
+    // Renormalization
+    while (x >= maxX[ch]) {
+      const byteVal = x & 0xFF;
+      emittedBytes.push(byteVal);
+      stepEmitted.push(byteVal);
+      x = Math.floor(x / 256);
+    }
+
+    const stateAfterRenorm = x;
+    const div = Math.floor(x / l_s);
+    const mod = x % l_s;
+    const scaled = div * M;
+    const slot = b_s + mod;
+    x = scaled + slot;
+
+    const prob = counts[ch] / rawBytes;
+    const idealBits = -Math.log2(prob);
+    const bitCost = (stepEmitted.length * 8 + Math.log2(x) - Math.log2(stateBefore)).toFixed(2);
+
+    let narrative = `Symbol '${charDisplay}' (P=${(prob * 100).toFixed(1)}%): `;
+    if (stepEmitted.length > 0) {
+      narrative += `State exceeded upper bound ${maxX[ch].toLocaleString()}. Emitted ${stepEmitted.length} byte(s) [${stepEmitted.map(b => '0x' + b.toString(16).toUpperCase().padStart(2, '0')).join(', ')}] to stream. `;
+    }
+    narrative += `Formula applied: ⌊${stateAfterRenorm} / ${l_s}⌋ · ${M} + ${b_s} + (${stateAfterRenorm} mod ${l_s}) = ${x.toLocaleString()}. Bit cost: ~${bitCost} bits (ideal: ${idealBits.toFixed(2)}b).`;
+
+    const voiceScript = `Encoding symbol ${charDisplay === '␣' ? 'space' : charDisplay}. State moves from ${stateBefore} to ${x}. Net cost is ${bitCost} bits.`;
+
+    encodeSteps.push({
+      stepIndex: rawBytes - 1 - i,
+      originalIndex: i,
+      char: ch,
+      charDisplay,
+      prob,
+      l_s,
+      b_s,
+      stateBefore,
+      stateAfterRenorm,
+      stateAfter: x,
+      emittedThisStep: stepEmitted,
+      div,
+      mod,
+      scaled,
+      slot,
+      idealBits,
+      bitCost,
+      narrative,
+      voiceScript
+    });
+  }
+
+  const finalState = x;
+
+  // 4. Decoder Simulation (Forward order: starts with finalState and consumes stream in reverse)
+  let decState = finalState;
+  let streamPtr = emittedBytes.length - 1;
+  const decodeSteps = [];
+  let reconstructedStr = '';
+
+  for (let i = 0; i < rawBytes; i++) {
+    const stateBefore = decState;
+    const slot = decState % M;
+    const ch = slotToSym[slot] || distinctChars[0];
+    const charDisplay = ch === ' ' ? '␣' : ch;
+    const l_s = freqs[ch];
+    const b_s = cumFreqs[ch];
+
+    // Invert state: x = l_s * floor(x / M) + (slot - b_s)
+    let nextState = l_s * Math.floor(decState / M) + (slot - b_s);
+    const stateBeforePull = nextState;
+    const consumedBytes = [];
+
+    // Renormalize: pull bytes while nextState < L
+    while (nextState < L && streamPtr >= 0) {
+      const bVal = emittedBytes[streamPtr--];
+      consumedBytes.push(bVal);
+      nextState = nextState * 256 + bVal;
+    }
+
+    reconstructedStr += ch;
+    decState = nextState;
+
+    let narrative = `Step ${i + 1}: State ${stateBefore.toLocaleString()} mod ${M} = slot ${slot}. Slot maps to symbol '${charDisplay}'. Inverted state to ${stateBeforePull.toLocaleString()}. `;
+    if (consumedBytes.length > 0) {
+      narrative += `State dropped below lower bound L=${L.toLocaleString()}. Pulled ${consumedBytes.length} byte(s) [${consumedBytes.map(b => '0x' + b.toString(16).toUpperCase().padStart(2, '0')).join(', ')}] from stream → restored state to ${nextState.toLocaleString()}.`;
+    } else {
+      narrative += `State remained within valid range [${L}, ${256 * L - 1}].`;
+    }
+
+    const voiceScript = `Decoding step ${i + 1}. Extracted symbol ${charDisplay === '␣' ? 'space' : charDisplay} from slot ${slot}. State restored to ${nextState}.`;
+
+    decodeSteps.push({
+      stepIndex: i,
+      char: ch,
+      charDisplay,
+      slot,
+      l_s,
+      b_s,
+      stateBefore,
+      stateBeforePull,
+      stateAfter: nextState,
+      consumedBytes,
+      reconstructedSoFar: reconstructedStr,
+      narrative,
+      voiceScript
+    });
+  }
+
+  // 5. tANS (Tabled ANS) State Transition Preview for the table view
+  // Show sample state transitions for each symbol
+  const tAnsTable = [];
+  const sampleStates = [L, L + 1, L + 2, L + 3, L + 4, L + 7, L + 15, L + 31];
+  for (const st of sampleStates) {
+    const row = { state: st };
+    for (const sym of symbolTable) {
+      const l_s = sym.l_s;
+      const b_s = sym.b_s;
+      let sSt = st;
+      let bitsOut = 0;
+      while (sSt >= maxX[sym.char]) {
+        sSt = Math.floor(sSt / 256);
+        bitsOut += 8;
+      }
+      const nextSt = Math.floor(sSt / l_s) * M + b_s + (sSt % l_s);
+      row[sym.char] = { nextState: nextSt, bitsOut };
+    }
+    tAnsTable.push(row);
+  }
+
+  // 6. Huffman average bits for comparison
+  let cumHuffBits = 0;
+  for (const s of symbolTable) {
+    const huffBits = Math.max(1, Math.ceil(s.idealBits));
+    cumHuffBits += s.prob * huffBits;
+  }
+
+  // Total compressed bits:
+  // Container: 4B orig size + 1B sym count + (3B * num_syms) header + 4B final state + emitted stream bytes
+  const headerBytes = 4 + 1 + distinctChars.length * 3;
+  const payloadBytes = emittedBytes.length + 4; // stream + 32-bit final state
+  const totalCompressedBytes = headerBytes + payloadBytes;
+  const totalCompressedBits = totalCompressedBytes * 8;
+  const deltaBits = rawBits - totalCompressedBits;
+  const spaceSavingsPercent = rawBits > 0 ? ((deltaBits / rawBits) * 100).toFixed(1) : '0.0';
+  const compressionRatio = totalCompressedBytes > 0 ? (rawBits / totalCompressedBytes).toFixed(2) : '1.00';
+
+  return {
+    rawBytes,
+    rawBits,
+    entropy,
+    M,
+    L,
+    symbolTable,
+    encodeSteps,
+    decodeSteps,
+    tAnsTable,
+    finalState,
+    emittedBytes,
+    reconstructedStr,
+    stats: {
+      rawBytes,
+      rawBits,
+      entropy: entropy.toFixed(3),
+      ansPayloadBits: payloadBytes * 8,
+      headerBits: headerBytes * 8,
+      totalCompressedBits,
+      totalCompressedBytes,
+      spaceSavingsPercent,
+      compressionRatio,
+      huffmanAvgBits: cumHuffBits.toFixed(2)
+    }
+  };
 }
 
 // ARITHMETIC CODING CONSTANTS & SIMULATION ENGINE
@@ -1382,6 +1718,22 @@ export default function App() {
 
   const sfData = useMemo(() => runShannonFanoSimulation(sfInput), [sfInput]);
 
+  // ----------------------------------------------------
+  // ASYMMETRIC NUMERAL SYSTEMS (ANS / rANS) STATE
+  // ----------------------------------------------------
+  const [ansPresetKey, setAnsPresetKey] = useState('biased');
+  const [ansInput, setAnsInput] = useState(ANS_PRESETS.biased.text);
+  const [ansScaleBits, setAnsScaleBits] = useState(10); // M = 1024
+  const [ansStepIdx, setAnsStepIdx] = useState(0);
+  const [ansAnimPhase, setAnsAnimPhase] = useState('trace'); // 'trace' | 'statetable' | 'compare' | 'theory'
+  const [ansViewMode, setAnsViewMode] = useState('encoder'); // 'encoder' | 'decoder'
+  const [ansIsAutoBuilding, setAnsIsAutoBuilding] = useState(false);
+  const [ansVoiceEnabled, setAnsVoiceEnabled] = useState(true);
+  const ansIsAutoBuildingRef = useRef(false);
+  const ansSpeechTimeoutRef = useRef(null);
+
+  const ansData = useMemo(() => runANSSimulation(ansInput, ansScaleBits), [ansInput, ansScaleBits]);
+
   // Hovered byte info for interactive matrix inspection
   const [hoveredByteInfo, setHoveredByteInfo] = useState(null);
 
@@ -1410,6 +1762,8 @@ export default function App() {
       setLzwIsAutoBuilding(false);
       arithIsAutoBuildingRef.current = false;
       setArithIsAutoBuilding(false);
+      ansIsAutoBuildingRef.current = false;
+      setAnsIsAutoBuilding(false);
 
       if (activeSpeechTimeoutRef.current) {
         clearTimeout(activeSpeechTimeoutRef.current);
@@ -1430,6 +1784,10 @@ export default function App() {
       if (arithSpeechTimeoutRef.current) {
         clearTimeout(arithSpeechTimeoutRef.current);
         arithSpeechTimeoutRef.current = null;
+      }
+      if (ansSpeechTimeoutRef.current) {
+        clearTimeout(ansSpeechTimeoutRef.current);
+        ansSpeechTimeoutRef.current = null;
       }
     };
 
@@ -1471,6 +1829,8 @@ export default function App() {
     setLzwIsAutoBuilding(false);
     arithIsAutoBuildingRef.current = false;
     setArithIsAutoBuilding(false);
+    ansIsAutoBuildingRef.current = false;
+    setAnsIsAutoBuilding(false);
 
     if (activeSpeechTimeoutRef.current) {
       clearTimeout(activeSpeechTimeoutRef.current);
@@ -1491,6 +1851,10 @@ export default function App() {
     if (arithSpeechTimeoutRef.current) {
       clearTimeout(arithSpeechTimeoutRef.current);
       arithSpeechTimeoutRef.current = null;
+    }
+    if (ansSpeechTimeoutRef.current) {
+      clearTimeout(ansSpeechTimeoutRef.current);
+      ansSpeechTimeoutRef.current = null;
     }
 
     // 3. Push a clean URL — no # prefix
@@ -2556,6 +2920,51 @@ export default function App() {
     }
   };
 
+  const handleAnsStepChange = (newIdx) => {
+    const steps = ansViewMode === 'encoder' ? ansData.encodeSteps : ansData.decodeSteps;
+    if (!steps || newIdx < 0 || newIdx >= steps.length) return;
+    setAnsStepIdx(newIdx);
+    if (ansVoiceEnabled && steps[newIdx]) {
+      speakWithCallback(steps[newIdx].voiceScript, () => {
+        if (ansIsAutoBuildingRef.current) {
+          if (newIdx < steps.length - 1) {
+            handleAnsStepChange(newIdx + 1);
+          } else {
+            setAnsIsAutoBuilding(false);
+            ansIsAutoBuildingRef.current = false;
+          }
+        }
+      });
+    }
+  };
+
+  const handleToggleAnsAutoBuild = () => {
+    const steps = ansViewMode === 'encoder' ? ansData.encodeSteps : ansData.decodeSteps;
+    if (ansIsAutoBuilding) {
+      setAnsIsAutoBuilding(false);
+      ansIsAutoBuildingRef.current = false;
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      if (ansSpeechTimeoutRef.current) clearTimeout(ansSpeechTimeoutRef.current);
+    } else {
+      setAnsIsAutoBuilding(true);
+      ansIsAutoBuildingRef.current = true;
+      const startIdx = ansStepIdx >= steps.length - 1 ? 0 : ansStepIdx;
+      setAnsStepIdx(startIdx);
+      if (steps[startIdx]) {
+        speakWithCallback(steps[startIdx].voiceScript, () => {
+          if (ansIsAutoBuildingRef.current) {
+            if (startIdx < steps.length - 1) {
+              handleAnsStepChange(startIdx + 1);
+            } else {
+              setAnsIsAutoBuilding(false);
+              ansIsAutoBuildingRef.current = false;
+            }
+          }
+        });
+      }
+    }
+  };
+
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
@@ -2564,6 +2973,7 @@ export default function App() {
       if (deflateSpeechTimeoutRef.current) clearTimeout(deflateSpeechTimeoutRef.current);
       if (lzwSpeechTimeoutRef.current) clearTimeout(lzwSpeechTimeoutRef.current);
       if (arithSpeechTimeoutRef.current) clearTimeout(arithSpeechTimeoutRef.current);
+      if (ansSpeechTimeoutRef.current) clearTimeout(ansSpeechTimeoutRef.current);
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     };
   }, []);
@@ -8349,6 +8759,828 @@ export default function App() {
                           <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
                           <div><strong>Highly Skewed Probabilities:</strong> Neither Shannon-Fano nor Huffman can beat the 1-bit floor.
                             <div style={{ marginTop: '4px' }}><span className="badge-alt">Use Instead:</span> <strong>Arithmetic Coding / ANS</strong>.</div>
+                          </div>
+                        </li>
+                      </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* =========================================================================
+          VIEW 9: ASYMMETRIC NUMERAL SYSTEMS (ANS / rANS / tANS) STUDIO
+          ========================================================================= */}
+      {currentView === 'ans' && (() => {
+        const activeSteps = ansViewMode === 'encoder' ? ansData.encodeSteps : ansData.decodeSteps;
+        const currentStep = activeSteps && activeSteps[ansStepIdx] ? activeSteps[ansStepIdx] : null;
+        const symColors = ['#00f2fe', '#c084fc', '#34d399', '#fbbf24', '#f43f5e', '#38bdf8', '#a855f7', '#4ade80', '#fb923c', '#e879f9'];
+
+        return (
+          <div className="studio-container">
+            {/* Studio Header */}
+            <div className="studio-header">
+              <div className="studio-header-left">
+                <button className="btn btn-secondary back-btn" onClick={() => navigateTo('matrix')}>
+                  <ArrowLeft size={16} /> Back to Architecture Matrix
+                </button>
+                <div className="studio-title-group">
+                  <div className="studio-badge-row">
+                    <span className="badge badge-entropy">ENTROPY CODING · STATE OF THE ART</span>
+                    <span className="badge badge-compound">META ZSTANDARD (FSE) &amp; APPLE LZFSE</span>
+                  </div>
+                  <h1 className="studio-title">Asymmetric Numeral Systems (ANS / rANS / tANS)</h1>
+                  <p className="studio-subtitle">
+                    Invented by Dr. Jarosław Duda (2006). Unifies the optimal fractional density of Arithmetic Coding 
+                    with the multi-gigabyte-per-second streaming speed of Huffman table lookups.
+                  </p>
+                </div>
+              </div>
+              <div className="studio-header-right">
+                <div className="formula-pill">
+                  <Code2 size={14} color="var(--accent-cyan)" />
+                  <code>x' = C(s, x) = ⌊x / l_s⌋ · M + b_s + (x mod l_s)</code>
+                </div>
+                <a 
+                  href="file:///d:/Prorgram/Project/Compression/lossless/ans/ans.hpp"
+                  className="btn btn-secondary btn-sm"
+                  title="View C++20 Header"
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <FileCode size={14} /> C++20 Header
+                </a>
+              </div>
+            </div>
+
+            {/* Presets and Global Configuration Bar */}
+            <div className="studio-controls-bar">
+              <div className="control-group">
+                <label className="control-label">Preset Phrase:</label>
+                <select 
+                  className="select-input"
+                  value={ansPresetKey}
+                  onChange={e => {
+                    const key = e.target.value;
+                    setAnsPresetKey(key);
+                    if (key !== 'custom' && ANS_PRESETS[key]) {
+                      setAnsInput(ANS_PRESETS[key].text);
+                      setAnsStepIdx(0);
+                      setAnsIsAutoBuilding(false);
+                      ansIsAutoBuildingRef.current = false;
+                      if (window.speechSynthesis) window.speechSynthesis.cancel();
+                    }
+                  }}>
+                  {Object.entries(ANS_PRESETS).map(([k, p]) => (
+                    <option key={k} value={k}>{p.name}</option>
+                  ))}
+                  <option value="custom">Custom Text Input</option>
+                </select>
+              </div>
+
+              <div className="control-group">
+                <label className="control-label">Scale Precision M (2^R):</label>
+                <select
+                  className="select-input"
+                  value={ansScaleBits}
+                  onChange={e => {
+                    setAnsScaleBits(Number(e.target.value));
+                    setAnsStepIdx(0);
+                  }}>
+                  <option value={8}>M = 256 (8-bit Table Precision)</option>
+                  <option value={10}>M = 1,024 (10-bit Standard Precision)</option>
+                  <option value={12}>M = 4,096 (12-bit High Precision - Zstd)</option>
+                </select>
+              </div>
+
+              <div className="control-group" style={{ flex: 1 }}>
+                <label className="control-label">Input Text Stream:</label>
+                <input 
+                  type="text"
+                  className="text-input"
+                  value={ansInput}
+                  onChange={e => {
+                    setAnsPresetKey('custom');
+                    setAnsInput(e.target.value);
+                    setAnsStepIdx(0);
+                    setAnsIsAutoBuilding(false);
+                    ansIsAutoBuildingRef.current = false;
+                    if (window.speechSynthesis) window.speechSynthesis.cancel();
+                  }}
+                  style={{ fontFamily: 'var(--font-mono)' }}
+                />
+              </div>
+
+              {/* View Phase Tabs */}
+              <div className="studio-tabs">
+                <button 
+                  className={`studio-tab-btn ${ansAnimPhase === 'trace' ? 'active' : ''}`}
+                  onClick={() => setAnsAnimPhase('trace')}>
+                  <Sparkles size={14} /> State Machine Trace
+                </button>
+                <button 
+                  className={`studio-tab-btn ${ansAnimPhase === 'statetable' ? 'active' : ''}`}
+                  onClick={() => setAnsAnimPhase('statetable')}>
+                  <Table2 size={14} /> tANS Table &amp; Frequencies
+                </button>
+                <button 
+                  className={`studio-tab-btn ${ansAnimPhase === 'compare' ? 'active' : ''}`}
+                  onClick={() => setAnsAnimPhase('compare')}>
+                  <BarChart2 size={14} /> Tri-Way Benchmark
+                </button>
+                <button 
+                  className={`studio-tab-btn ${ansAnimPhase === 'theory' ? 'active' : ''}`}
+                  onClick={() => setAnsAnimPhase('theory')}>
+                  <BookOpen size={14} /> Theory &amp; Proof
+                </button>
+              </div>
+            </div>
+
+            {/* TAB 1: INTERACTIVE STATE MACHINE TRACE */}
+            {ansAnimPhase === 'trace' && (
+              <div className="ans-trace-panel">
+                {/* Dual Perspective Mode Switcher */}
+                <div className="ans-mode-banner">
+                  <div className="ans-mode-toggle-group">
+                    <button 
+                      className={`ans-mode-btn ${ansViewMode === 'encoder' ? 'active' : ''}`}
+                      onClick={() => {
+                        setAnsViewMode('encoder');
+                        setAnsStepIdx(0);
+                        setAnsIsAutoBuilding(false);
+                        ansIsAutoBuildingRef.current = false;
+                        if (window.speechSynthesis) window.speechSynthesis.cancel();
+                      }}>
+                      <TrendingDown size={15} /> 1. Encoder View (LIFO Reverse Walk)
+                    </button>
+                    <button 
+                      className={`ans-mode-btn ${ansViewMode === 'decoder' ? 'active' : ''}`}
+                      onClick={() => {
+                        setAnsViewMode('decoder');
+                        setAnsStepIdx(0);
+                        setAnsIsAutoBuilding(false);
+                        ansIsAutoBuildingRef.current = false;
+                        if (window.speechSynthesis) window.speechSynthesis.cancel();
+                      }}>
+                      <RotateCcw size={15} /> 2. Decoder View (Forward Reconstructive Extraction)
+                    </button>
+                  </div>
+                  <div className="ans-lifo-explainer-chip">
+                    <Info size={14} color="var(--accent-cyan)" />
+                    <span>
+                      {ansViewMode === 'encoder' 
+                        ? 'LIFO Stack Property: In rANS, encoding runs in REVERSE (right-to-left) so the decoder can extract symbols in FORWARD sequence.'
+                        : 'Forward Decoding: Decoder reads final state x and pops stream bytes in reverse order, seamlessly reconstructing the string.'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Step Navigation & Voice Controls */}
+                <div className="anim-controls-bar" style={{ marginTop: '14px' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <button 
+                      className={`btn ${ansIsAutoBuilding ? 'btn-secondary' : 'btn-accent'}`}
+                      onClick={handleToggleAnsAutoBuild}>
+                      {ansIsAutoBuilding ? <Pause size={14} /> : <Play size={14} />}
+                      {ansIsAutoBuilding ? 'Pause Auto-Advancer' : 'Auto-Scan with Voice'}
+                    </button>
+                    <button 
+                      className="btn btn-secondary"
+                      disabled={ansStepIdx === 0}
+                      onClick={() => handleAnsStepChange(ansStepIdx - 1)}>
+                      <StepBack size={14} /> Step Back
+                    </button>
+                    <button 
+                      className="btn btn-primary"
+                      disabled={ansStepIdx >= activeSteps.length - 1}
+                      onClick={() => handleAnsStepChange(ansStepIdx + 1)}>
+                      Step Forward <StepForward size={14} />
+                    </button>
+                    <button 
+                      className="btn btn-secondary"
+                      onClick={() => {
+                        setAnsStepIdx(0);
+                        setAnsIsAutoBuilding(false);
+                        ansIsAutoBuildingRef.current = false;
+                        if (window.speechSynthesis) window.speechSynthesis.cancel();
+                      }}>
+                      <RotateCcw size={14} /> Reset
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                    <button 
+                      className={`voice-toggle-chip ${ansVoiceEnabled ? 'active' : ''}`}
+                      onClick={() => setAnsVoiceEnabled(!ansVoiceEnabled)}>
+                      {ansVoiceEnabled ? <Volume2 size={14} /> : <VolumeX size={14} />}
+                      <span>{ansVoiceEnabled ? 'Voice Narration ON' : 'Voice Narration OFF'}</span>
+                    </button>
+                    <span className="step-counter-tag">
+                      {ansViewMode === 'encoder' ? 'Encoded Symbol' : 'Decoded Symbol'} {ansStepIdx + 1} of {activeSteps.length || 1}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Step Narrative Banner */}
+                {currentStep && (
+                  <div className="step-narrative-banner" style={{ marginTop: '14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                      <div className="step-narrative-title">
+                        <Sparkles size={16} color="var(--accent-cyan)" />
+                        <span>Step {ansStepIdx + 1}: {ansViewMode === 'encoder' ? `Encoding Symbol '${currentStep.charDisplay}' into State Integer` : `Extracting Symbol '${currentStep.charDisplay}' from Slot`}</span>
+                      </div>
+                      <div className="step-reduction-pill">
+                        <span className="pill-before">{ansViewMode === 'encoder' ? `State ${currentStep.stateBefore.toLocaleString()}` : `Slot ${currentStep.slot}`}</span>
+                        <span>→</span>
+                        <span className="pill-after" style={{ background: 'rgba(0,242,254,0.12)', color: 'var(--accent-cyan)', border: '1px solid rgba(0,242,254,0.3)' }}>
+                          {ansViewMode === 'encoder' ? `New State ${currentStep.stateAfter.toLocaleString()}` : `Symbol '${currentStep.charDisplay}'`}
+                        </span>
+                        {ansViewMode === 'encoder' && (
+                          <span className="pill-saved" style={{ color: 'var(--accent-emerald)' }}>
+                            Cost: ~{currentStep.bitCost}b (ideal: {currentStep.idealBits.toFixed(2)}b)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <p className="step-narrative-text">{currentStep.narrative}</p>
+                  </div>
+                )}
+
+                {/* Main Hero Visualizer Grid */}
+                <div className="ans-hero-grid" style={{ marginTop: '16px' }}>
+                  {/* Left: The ANS State Integer Card */}
+                  <div className="ans-state-card">
+                    <div className="ans-card-header">
+                      <Cpu size={18} color="var(--accent-cyan)" />
+                      <span>rANS State Accumulator (Integer x)</span>
+                      <span className="ans-range-badge">Valid Range: [65,536 .. 16,777,215]</span>
+                    </div>
+
+                    <div className="ans-state-value-box">
+                      <span className="ans-state-label">CURRENT STATE INTEGER x:</span>
+                      <div className="ans-state-number">
+                        {currentStep ? currentStep.stateAfter.toLocaleString() : ansData.L.toLocaleString()}
+                      </div>
+                      <div className="ans-state-meta-row">
+                        <span className="meta-item">
+                          HEX: <code>0x{(currentStep ? currentStep.stateAfter : ansData.L).toString(16).toUpperCase().padStart(8, '0')}</code>
+                        </span>
+                        <span className="meta-item">
+                          BIT WIDTH: <strong>~{(Math.log2(currentStep ? currentStep.stateAfter : ansData.L)).toFixed(2)} bits</strong>
+                        </span>
+                        <span className="meta-item">
+                          SLOT (x mod M): <strong>{(currentStep ? currentStep.stateAfter : ansData.L) % ansData.M}</strong>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Bit Width Gauge */}
+                    <div className="ans-gauge-wrap">
+                      <div className="gauge-labels">
+                        <span>Lower Bound L (16 bits)</span>
+                        <span>State Capacity Gauge</span>
+                        <span>Upper Bound 256·L (24 bits)</span>
+                      </div>
+                      <div className="gauge-track">
+                        <div 
+                          className="gauge-fill"
+                          style={{
+                            width: `${Math.min(100, Math.max(0, (((Math.log2(currentStep ? currentStep.stateAfter : ansData.L)) - 16) / 8) * 100))}%`
+                          }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Byte Stream Tape */}
+                    <div className="ans-stream-tape-box">
+                      <div className="tape-title">
+                        <Layers size={14} />
+                        <span>Emitted Byte Stream ({ansData.emittedBytes.length} bytes):</span>
+                      </div>
+                      <div className="tape-bytes-scroll">
+                        {ansData.emittedBytes.length === 0 ? (
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>Zero byte renormalizations required yet (all information held in state x)</span>
+                        ) : (
+                          ansData.emittedBytes.map((bVal, bIdx) => (
+                            <div key={bIdx} className="tape-byte-pill">
+                              <span className="tape-byte-hex">0x{bVal.toString(16).toUpperCase().padStart(2, '0')}</span>
+                              <span className="tape-byte-idx">#{bIdx}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: Mathematical Transition Breakdown */}
+                  <div className="ans-transition-card">
+                    <div className="ans-card-header">
+                      <Zap size={18} color="var(--accent-emerald)" />
+                      <span>Mathematical Step Breakdown</span>
+                      <span className="ans-tag-step">Step {ansStepIdx + 1} of {activeSteps.length}</span>
+                    </div>
+
+                    {currentStep ? (
+                      <div className="ans-math-breakdown-body">
+                        {/* Active Symbol Row */}
+                        <div className="ans-symbol-spotlight">
+                          <div className="sym-char-badge" style={{ borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)' }}>
+                            {currentStep.charDisplay}
+                          </div>
+                          <div className="sym-info-col">
+                            <span className="sym-title">Active Symbol: <strong>'{currentStep.charDisplay}'</strong></span>
+                            <span className="sym-meta">
+                              Scaled Frequency l_s = <strong>{currentStep.l_s} / {ansData.M}</strong> | Cumulative Offset b_s = <strong>{currentStep.b_s}</strong>
+                            </span>
+                          </div>
+                          <div className="sym-bits-col">
+                            <span className="bits-label">Shannon Limit:</span>
+                            <span className="bits-val">{(currentStep.idealBits || 0).toFixed(3)} bits</span>
+                          </div>
+                        </div>
+
+                        {ansViewMode === 'encoder' ? (
+                          <div className="ans-calc-steps">
+                            <div className="calc-step-row">
+                              <span className="calc-step-num">1</span>
+                              <div className="calc-step-content">
+                                <strong>Renormalization Check:</strong> Is x ≥ maxX[{currentStep.charDisplay}] ({((ansData.L / ansData.M) * 256 * currentStep.l_s).toLocaleString()})?
+                                <div className="calc-sub">
+                                  {currentStep.emittedThisStep.length > 0 ? (
+                                    <span style={{ color: 'var(--accent-cyan)' }}>
+                                      YES! x exceeded upper threshold. Emitted {currentStep.emittedThisStep.length} byte(s) to stream; x shifted to {currentStep.stateAfterRenorm.toLocaleString()}.
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: 'var(--accent-emerald)' }}>
+                                      NO. State fits safely within bounds. Zero bytes emitted.
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="calc-step-row">
+                              <span className="calc-step-num">2</span>
+                              <div className="calc-step-content">
+                                <strong>Quotient &amp; Modulo Decomposition:</strong>
+                                <div className="calc-formula-box">
+                                  <code>q = ⌊{currentStep.stateAfterRenorm} / {currentStep.l_s}⌋ = {currentStep.div}</code>
+                                  <span className="math-sep">|</span>
+                                  <code>r = {currentStep.stateAfterRenorm} mod {currentStep.l_s} = {currentStep.mod}</code>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="calc-step-row">
+                              <span className="calc-step-num">3</span>
+                              <div className="calc-step-content">
+                                <strong>Asymmetric State Update:</strong>
+                                <div className="calc-formula-box highlight">
+                                  <code>x' = ({currentStep.div} × {ansData.M}) + {currentStep.b_s} + {currentStep.mod} = {currentStep.stateAfter.toLocaleString()}</code>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="ans-calc-steps">
+                            <div className="calc-step-row">
+                              <span className="calc-step-num">1</span>
+                              <div className="calc-step-content">
+                                <strong>Extract Slot from State:</strong>
+                                <div className="calc-formula-box">
+                                  <code>slot = {currentStep.stateBefore.toLocaleString()} mod {ansData.M} = {currentStep.slot}</code>
+                                </div>
+                                <div className="calc-sub">
+                                  Slot {currentStep.slot} falls in range [{currentStep.b_s} .. {currentStep.b_s + currentStep.l_s - 1}] → Identifies symbol <strong>'{currentStep.charDisplay}'</strong>!
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="calc-step-row">
+                              <span className="calc-step-num">2</span>
+                              <div className="calc-step-content">
+                                <strong>Invert State Equation:</strong>
+                                <div className="calc-formula-box highlight">
+                                  <code>x' = {currentStep.l_s} × ⌊{currentStep.stateBefore} / {ansData.M}⌋ + ({currentStep.slot} - {currentStep.b_s}) = {currentStep.stateBeforePull.toLocaleString()}</code>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="calc-step-row">
+                              <span className="calc-step-num">3</span>
+                              <div className="calc-step-content">
+                                <strong>Decoder Renormalization:</strong>
+                                <div className="calc-sub">
+                                  {currentStep.consumedBytes.length > 0 ? (
+                                    <span style={{ color: 'var(--accent-cyan)' }}>
+                                      State dropped below L ({ansData.L.toLocaleString()}). Pulled {currentStep.consumedBytes.length} byte(s) from stream → Restored to {currentStep.stateAfter.toLocaleString()}.
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: 'var(--accent-emerald)' }}>
+                                      State remains ≥ L ({ansData.L.toLocaleString()}). No stream bytes needed.
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <p style={{ color: 'var(--text-muted)' }}>Select or advance steps to view breakdown.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Input Stream Walk Tape */}
+                <div className="ans-tape-strip-container" style={{ marginTop: '16px' }}>
+                  <div className="tape-strip-header">
+                    <span>Symbol Stream Progress ({ansViewMode === 'encoder' ? 'Processing Reverse LIFO Order' : 'Reconstructing Forward FIFO Order'}):</span>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Click any character to jump directly</span>
+                  </div>
+                  <div className="tape-strip-chars">
+                    {Array.from(ansInput).map((ch, idx) => {
+                      const isActive = ansViewMode === 'encoder' 
+                        ? (currentStep && currentStep.originalIndex === idx)
+                        : (ansStepIdx === idx);
+                      return (
+                        <div 
+                          key={idx}
+                          className={`tape-char-item ${isActive ? 'active' : ''}`}
+                          onClick={() => {
+                            if (ansViewMode === 'encoder') {
+                              const stepFound = ansData.encodeSteps.findIndex(s => s.originalIndex === idx);
+                              if (stepFound !== -1) handleAnsStepChange(stepFound);
+                            } else {
+                              handleAnsStepChange(idx);
+                            }
+                          }}>
+                          <span className="char-val">{ch === ' ' ? '␣' : ch}</span>
+                          <span className="char-idx">#{idx}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 2: tANS FREQUENCY & TRANSITION TABLE */}
+            {ansAnimPhase === 'statetable' && (
+              <div className="ans-table-panel">
+                <div className="ans-table-grid">
+                  {/* Probability Quantization Table */}
+                  <div className="ans-card">
+                    <div className="ans-card-header">
+                      <Table2 size={18} color="var(--accent-cyan)" />
+                      <span>Quantized Symbol Frequency Table (M = {ansData.M})</span>
+                      <span className="ans-tag-step">Sum(l_s) = {ansData.M}</span>
+                    </div>
+
+                    <div className="table-responsive" style={{ marginTop: '12px' }}>
+                      <table className="ans-data-table">
+                        <thead>
+                          <tr>
+                            <th>Symbol</th>
+                            <th>Count</th>
+                            <th>Raw Prob</th>
+                            <th>Scaled Freq l_s</th>
+                            <th>Offset b_s</th>
+                            <th>Shannon Ideal</th>
+                            <th>ANS Allocated</th>
+                            <th>Efficiency</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ansData.symbolTable.map((sym, sIdx) => {
+                            const efficiency = (sym.idealBits / sym.ansAllocBits * 100).toFixed(1);
+                            return (
+                              <tr key={sIdx}>
+                                <td>
+                                  <strong style={{ color: symColors[sIdx % symColors.length], fontFamily: 'var(--font-mono)' }}>
+                                    '{sym.charDisplay}'
+                                  </strong>
+                                </td>
+                                <td>{sym.count}</td>
+                                <td>{(sym.prob * 100).toFixed(1)}%</td>
+                                <td><strong>{sym.l_s}</strong> / {ansData.M}</td>
+                                <td>{sym.b_s}</td>
+                                <td>{sym.idealBits.toFixed(3)} bits</td>
+                                <td>{sym.ansAllocBits.toFixed(3)} bits</td>
+                                <td>
+                                  <span className="badge" style={{ background: 'rgba(52,211,153,0.15)', color: 'var(--accent-emerald)' }}>
+                                    {efficiency}%
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Proportional Stacked Bar */}
+                    <div style={{ marginTop: '16px' }}>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                        Proportional Symbol Allocation Across {ansData.M} Interval Slots:
+                      </div>
+                      <div className="ans-proportional-bar">
+                        {ansData.symbolTable.map((sym, sIdx) => (
+                          <div 
+                            key={sIdx}
+                            className="prop-segment"
+                            style={{
+                              width: `${(sym.l_s / ansData.M) * 100}%`,
+                              background: symColors[sIdx % symColors.length]
+                            }}
+                            title={`'${sym.charDisplay}': ${sym.l_s} slots (${((sym.l_s / ansData.M) * 100).toFixed(1)}%)`}>
+                            {sym.l_s > (ansData.M * 0.05) && sym.charDisplay}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* tANS Finite State Machine Transition Table Preview */}
+                  <div className="ans-card">
+                    <div className="ans-card-header">
+                      <Zap size={18} color="var(--accent-yellow)" />
+                      <span>tANS (Tabled ANS) State Transition Matrix</span>
+                      <span className="ans-tag-step">O(1) Array Lookup</span>
+                    </div>
+
+                    <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+                      In production (Meta Zstandard / Apple LZFSE), runtime divisions and modulos are eliminated.
+                      The compiler precalculates state transitions into flat arrays: <code>x' = table[x][symbol]</code>.
+                    </p>
+
+                    <div className="table-responsive" style={{ marginTop: '10px' }}>
+                      <table className="ans-data-table">
+                        <thead>
+                          <tr>
+                            <th>State x</th>
+                            {ansData.symbolTable.slice(0, 5).map((s, idx) => (
+                              <th key={idx}>C('{s.charDisplay}', x)</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ansData.tAnsTable.map((row, rIdx) => (
+                            <tr key={rIdx}>
+                              <td><code>{row.state}</code></td>
+                              {ansData.symbolTable.slice(0, 5).map((s, sIdx) => {
+                                const tr = row[s.char];
+                                return (
+                                  <td key={sIdx}>
+                                    <span style={{ color: 'var(--accent-cyan)' }}>{tr.nextState}</span>
+                                    {tr.bitsOut > 0 && (
+                                      <span style={{ fontSize: '0.72rem', color: '#fbbf24', marginLeft: '4px' }}>
+                                        (+{tr.bitsOut}b)
+                                      </span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="ans-tans-explainer" style={{ marginTop: '16px' }}>
+                      <CheckCircle2 size={16} color="var(--accent-emerald)" />
+                      <span>
+                        <strong>Why tANS is so fast:</strong> A single CPU cache line read yields both the next state integer
+                        and the number of bits to emit, achieving <strong>2.5 to 3.0 Gigabytes/second</strong> decode throughput!
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: TRI-WAY HEAD-TO-HEAD BENCHMARK */}
+            {ansAnimPhase === 'compare' && (
+              <div className="ans-compare-panel">
+                {/* 3-Column Reduction Audit */}
+                <div className="math-summary-card" style={{ marginBottom: '20px' }}>
+                  <div className="math-summary-row">
+                    <div className="math-eq-item">
+                      <span className="math-eq-label">Raw Size</span>
+                      <span className="math-eq-val">{ansData.stats.rawBytes} B</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({ansData.stats.rawBits} bits)</span>
+                    </div>
+                    <span className="math-operator">→</span>
+                    <div className="math-eq-item">
+                      <span className="math-eq-label">rANS Total Package</span>
+                      <span className="math-eq-val" style={{ color: 'var(--accent-emerald)' }}>
+                        {ansData.stats.totalCompressedBytes} B
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        ({ansData.stats.totalCompressedBits} bits)
+                      </span>
+                    </div>
+                    <span className="math-operator">|</span>
+                    <div className="math-eq-item">
+                      <span className="math-eq-label">Space Reduction</span>
+                      <span className="math-eq-val" style={{ color: 'var(--accent-cyan)' }}>
+                        {ansData.stats.spaceSavingsPercent}%
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>savings</span>
+                    </div>
+                    <span className="math-operator">|</span>
+                    <div className="math-eq-item">
+                      <span className="math-eq-label">Compression Factor</span>
+                      <span className="math-eq-val ratio">{ansData.stats.compressionRatio} : 1</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>density multiplier</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Tri-Way Comparison Table */}
+                <div className="ans-card">
+                  <div className="ans-card-header">
+                    <BarChart2 size={18} color="var(--accent-cyan)" />
+                    <span>The Tri-Way Entropy Faceoff: Huffman vs Arithmetic vs ANS</span>
+                  </div>
+
+                  <div className="table-responsive" style={{ marginTop: '12px' }}>
+                    <table className="ans-data-table compare">
+                      <thead>
+                        <tr>
+                          <th>Architectural Dimension</th>
+                          <th>Canonical Huffman (1952)</th>
+                          <th>Arithmetic / Range (1976)</th>
+                          <th style={{ background: 'rgba(0,242,254,0.1)', color: 'var(--accent-cyan)' }}>
+                            Asymmetric Numeral Systems (2006)
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td><strong>Compression Density</strong></td>
+                          <td>Sub-optimal on skewed data (1-bit integer floor)</td>
+                          <td>Approaches true Shannon limit H(X)</td>
+                          <td style={{ color: 'var(--accent-emerald)', fontWeight: 700 }}>
+                            Identical to Arithmetic Coding (Exact H(X))
+                          </td>
+                        </tr>
+                        <tr>
+                          <td><strong>Fractional Bit Capability</strong></td>
+                          <td>❌ Strictly integer bits (1, 2, 3...)</td>
+                          <td>✅ Fractional bit allocation</td>
+                          <td style={{ color: 'var(--accent-emerald)', fontWeight: 700 }}>
+                            ✅ Fractional bit allocation
+                          </td>
+                        </tr>
+                        <tr>
+                          <td><strong>Decode Throughput</strong></td>
+                          <td>~1.0 – 1.5 GB/s (Table lookup)</td>
+                          <td>~100 – 250 MB/s (Multiplications &amp; carries)</td>
+                          <td style={{ color: 'var(--accent-cyan)', fontWeight: 700 }}>
+                            ~2.0 – 3.0 GB/s (Fastest known entropy coder)
+                          </td>
+                        </tr>
+                        <tr>
+                          <td><strong>Streaming Direction</strong></td>
+                          <td>Forward (FIFO)</td>
+                          <td>Forward (FIFO)</td>
+                          <td>LIFO Stack (Encode in reverse, decode forward)</td>
+                        </tr>
+                        <tr>
+                          <td><strong>Patent Status</strong></td>
+                          <td>Expired / Open</td>
+                          <td>Historically encumbered (IBM/AT&amp;T patents)</td>
+                          <td style={{ color: 'var(--accent-emerald)', fontWeight: 700 }}>
+                            100% Public Domain (Jarosław Duda)
+                          </td>
+                        </tr>
+                        <tr>
+                          <td><strong>Major Production Systems</strong></td>
+                          <td>DEFLATE (ZIP, GZIP, PNG), JPEG, MP3</td>
+                          <td>H.264/H.265 CABAC, JPEG 2000, WebP</td>
+                          <td style={{ color: 'var(--accent-cyan)', fontWeight: 700 }}>
+                            Meta Zstandard (Zstd), Apple LZFSE, Linux Kernel
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* TAB 4: THEORY & MATHEMATICAL PROOF */}
+            {ansAnimPhase === 'theory' && (
+              <div className="ans-theory-panel">
+                <div className="lz-tricky-card">
+                  <div className="lz-tricky-title">
+                    <BookOpen size={20} color="var(--accent-cyan)" />
+                    <span>The 3 Breakthrough Concepts of Asymmetric Numeral Systems</span>
+                  </div>
+
+                  <div className="lz-tricky-grid">
+                    <div className="lz-tricky-col">
+                      <h5>1. Solving the 60-Year Entropy Dilemma</h5>
+                      <p>
+                        For half a century, engineers faced a painful trade-off: choose <strong>Huffman</strong> for blazing speed 
+                        at the expense of compression density, or choose <strong>Arithmetic Coding</strong> for theoretical density 
+                        at the expense of CPU-intensive multiplications and carries.
+                      </p>
+                      <div className="code-diagram">
+                        Huffman: Fast (GB/s) but Low Density<br />
+                        Arithmetic: High Density but Slow (MB/s)<br />
+                        ANS: High Density + Blazing Speed!
+                      </div>
+                      <p>
+                        Dr. Jarosław Duda showed that non-uniform probabilities can be folded into a single integer state 
+                        using asymmetric digit numeral systems.
+                      </p>
+                    </div>
+
+                    <div className="lz-tricky-col">
+                      <h5>2. The LIFO Duality &amp; Reversed Streaming</h5>
+                      <p>
+                        Unlike Huffman or Arithmetic coding which are FIFO (First-In, First-Out), ANS naturally behaves 
+                        as a <strong>Last-In, First-Out (LIFO) stack</strong>.
+                      </p>
+                      <div className="code-diagram">
+                        Encoder: Input[N-1] ... Input[1] Input[0]<br />
+                        Decoder: Reads x_final → extracts Input[0] Input[1] ... Input[N-1]
+                      </div>
+                      <p>
+                        Production engines (like Meta Zstd) solve this effortlessly: the compressor encodes the block 
+                        in reverse memory order, allowing the decompressor to stream forwards at full memory bandwidth!
+                      </p>
+                    </div>
+
+                    <div className="lz-tricky-col">
+                      <h5>3. How tANS Eliminates CPU Division</h5>
+                      <p>
+                        rANS uses integer division: <code>⌊x / l_s⌋</code>. In <strong>tANS (Tabled ANS)</strong>, 
+                        the state space is constrained to an interval <code>[L, 2L-1]</code>.
+                      </p>
+                      <div className="code-diagram">
+                        struct TansEntry &#123;<br />
+                        &nbsp;&nbsp;uint16_t nextState;<br />
+                        &nbsp;&nbsp;uint8_t  nbBits;<br />
+                        &#125;;<br />
+                        x = table[x][sym].nextState + readBits(nbBits);
+                      </div>
+                      <p>
+                        Every cycle is reduced to one indexed memory load and a bitshift. This is the engine behind 
+                        Meta's Finite State Entropy (FSE).
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Decision Matrix */}
+                <div className="decision-matrix-card" style={{ marginTop: '24px' }}>
+                  <div className="decision-matrix-header">
+                    <Network size={22} color="var(--accent-cyan)" />
+                    <h3 className="matrix-title">Architectural Placement: When to Deploy ANS</h3>
+                  </div>
+                  <div className="decision-columns-grid">
+                    <div className="decision-column use">
+                      <div className="decision-column-title">
+                        <CheckCircle2 size={20} />
+                        <span>When to Use</span>
+                      </div>
+                      <ul className="decision-items-list">
+                        <li className="decision-item">
+                          <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                          <div><strong>Modern High-Throughput Lossless Pipelines:</strong> The gold standard for modern operating system storage, filesystem compression (Btrfs, ZFS), and web data transmission (Zstd).</div>
+                        </li>
+                        <li className="decision-item">
+                          <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                          <div><strong>Skewed Symbol Distributions:</strong> When any symbol probability exceeds 50%, Huffman's 1-bit floor wastes enormous space. ANS encodes fractional bits with zero penalty.</div>
+                        </li>
+                        <li className="decision-item">
+                          <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                          <div><strong>Replacing Legacy DEFLATE/Zlib:</strong> Zstandard (FSE/tANS) provides 3–5x faster decompression and 15–25% higher compression density than zlib.</div>
+                        </li>
+                      </ul>
+                    </div>
+                    <div className="decision-column avoid">
+                      <div className="decision-column-title">
+                        <XCircle size={20} />
+                        <span>When NOT to Use</span>
+                      </div>
+                      <ul className="decision-items-list">
+                        <li className="decision-item">
+                          <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                          <div><strong>Legacy Standard Interoperability:</strong> Formats strictly governed by RFC standards (ZIP, GZIP, PNG, PDF) require DEFLATE with Canonical Huffman.
+                            <div style={{ marginTop: '4px' }}><span className="badge-alt">Use Instead:</span> <strong>Canonical Huffman / DEFLATE</strong>.</div>
+                          </div>
+                        </li>
+                        <li className="decision-item">
+                          <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                          <div><strong>Micro-Controllers with Sub-Kilobyte RAM:</strong> Large precompiled tANS transition tables require 1–4 KB of lookup memory which can strain ultra-low-memory microcontrollers.
+                            <div style={{ marginTop: '4px' }}><span className="badge-alt">Use Instead:</span> <strong>rANS (division) or Huffman</strong>.</div>
                           </div>
                         </li>
                       </ul>

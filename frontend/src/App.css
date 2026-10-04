@@ -3130,4 +3130,509 @@ button {
   gap: 8px;
 }
 
+/* =========================================================================
+   ASYMMETRIC NUMERAL SYSTEMS (ANS / rANS / tANS) STUDIO STYLES
+   ========================================================================= */
+
+.ans-mode-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+}
+
+.ans-mode-toggle-group {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ans-mode-btn {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  padding: 8px 16px;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.ans-mode-btn:hover {
+  border-color: rgba(0, 242, 254, 0.4);
+  color: #fff;
+}
+
+.ans-mode-btn.active {
+  background: rgba(0, 242, 254, 0.12);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+  box-shadow: 0 0 12px rgba(0, 242, 254, 0.25);
+}
+
+.ans-lifo-explainer-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  background: rgba(0, 242, 254, 0.05);
+  border: 1px solid rgba(0, 242, 254, 0.15);
+  padding: 6px 12px;
+  border-radius: 99px;
+  max-width: 600px;
+}
+
+.ans-hero-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 1024px) {
+  .ans-hero-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ans-state-card, .ans-transition-card, .ans-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+}
+
+.ans-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-display);
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+}
+
+.ans-range-badge, .ans-tag-step {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: rgba(0, 242, 254, 0.08);
+  border: 1px solid rgba(0, 242, 254, 0.25);
+  color: var(--accent-cyan);
+}
+
+.ans-state-value-box {
+  background: linear-gradient(135deg, rgba(0, 242, 254, 0.06), rgba(192, 132, 252, 0.06));
+  border: 1px solid rgba(0, 242, 254, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 18px;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.ans-state-label {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.ans-state-number {
+  font-family: var(--font-mono);
+  font-size: 2.8rem;
+  font-weight: 900;
+  color: #fff;
+  text-shadow: 0 0 24px rgba(0, 242, 254, 0.5);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 6px 0 12px;
+}
+
+.ans-state-meta-row {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.ans-state-meta-row code {
+  color: var(--accent-cyan);
+}
+
+.ans-gauge-wrap {
+  margin-top: 18px;
+}
+
+.gauge-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.gauge-track {
+  height: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid var(--border-subtle);
+  border-radius: 99px;
+  overflow: hidden;
+  position: relative;
+}
+
+.gauge-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald));
+  border-radius: 99px;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.6);
+}
+
+.ans-stream-tape-box {
+  margin-top: 18px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+
+.tape-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.tape-bytes-scroll {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.tape-byte-pill {
+  background: rgba(0, 242, 254, 0.08);
+  border: 1px solid rgba(0, 242, 254, 0.2);
+  border-radius: 4px;
+  padding: 4px 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 48px;
+}
+
+.tape-byte-hex {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent-cyan);
+}
+
+.tape-byte-idx {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+}
+
+/* Right Side Math Transition Breakdown */
+.ans-symbol-spotlight {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.sym-char-badge {
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  background: rgba(0, 242, 254, 0.1);
+  border: 2px solid;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 1.4rem;
+  font-weight: 800;
+}
+
+.sym-info-col {
+  flex: 1;
+}
+
+.sym-title {
+  display: block;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+}
+
+.sym-meta {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.sym-bits-col {
+  text-align: right;
+}
+
+.bits-label {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.bits-val {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--accent-emerald);
+}
+
+.ans-calc-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.calc-step-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+}
+
+.calc-step-num {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(0, 242, 254, 0.15);
+  color: var(--accent-cyan);
+  font-weight: 700;
+  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.calc-step-content {
+  flex: 1;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.calc-formula-box {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 6px 10px;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.calc-formula-box.highlight {
+  border-color: rgba(0, 242, 254, 0.4);
+  background: rgba(0, 242, 254, 0.08);
+  color: var(--accent-cyan);
+  font-weight: 700;
+}
+
+.math-sep {
+  color: var(--text-muted);
+}
+
+.calc-sub {
+  margin-top: 4px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+/* Tape strip walkthrough */
+.ans-tape-strip-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 14px 18px;
+}
+
+.tape-strip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.tape-strip-chars {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+
+.tape-char-item {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tape-char-item:hover {
+  border-color: rgba(0, 242, 254, 0.4);
+  transform: translateY(-2px);
+}
+
+.tape-char-item.active {
+  background: rgba(0, 242, 254, 0.18);
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 12px rgba(0, 242, 254, 0.35);
+  transform: translateY(-3px);
+}
+
+.tape-char-item .char-val {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff;
+}
+
+.tape-char-item.active .char-val {
+  color: var(--accent-cyan);
+}
+
+.tape-char-item .char-idx {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* Table Tab Styles */
+.ans-table-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 1024px) {
+  .ans-table-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ans-data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.ans-data-table th, .ans-data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+}
+
+.ans-data-table th {
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.ans-data-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.ans-data-table.compare td {
+  vertical-align: top;
+  line-height: 1.5;
+}
+
+.ans-proportional-bar {
+  display: flex;
+  height: 28px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.prop-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #000;
+  transition: opacity 0.2s ease;
+}
+
+.prop-segment:hover {
+  opacity: 0.85;
+}
+
+.ans-tans-explainer {
+  background: rgba(52, 211, 153, 0.08);
+  border: 1px solid rgba(52, 211, 153, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 0.84rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
 
