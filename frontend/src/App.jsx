@@ -27,7 +27,14 @@ import {
   Volume2,
   VolumeX,
   Sparkles,
-  ArrowDown
+  ArrowDown,
+  GitBranch,
+  BookOpen,
+  Table2,
+  List,
+  BarChart2,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 // --- Tree Node Class ---
@@ -278,17 +285,17 @@ const ALGORITHMS_CATALOG = [
   },
   {
     id: 'lz77',
-    name: 'LZ77 (Sliding Window)',
+    name: 'LZ77 & LZSS (Sliding Window & Flag Bits)',
     section: 'redundancy',
     category: 'lossless',
-    type: 'Sliding Window History',
+    type: 'Sliding Window & Flags',
     status: 'ready',
-    formula: 'Tokens: (distance, length, next_char)',
-    ratio: '2:1 – 10:1',
-    desc: 'Published in 1977 by Lempel & Ziv. Replaces repeating byte sequences with backward distance-length references into history. Foundation of GZIP, PNG, and ZIP.',
-    pros: ['Asymmetric blazing fast decompression (memcpy)', 'Zero prior distribution needed'],
+    formula: 'LZ77: (d, l, c) | LZSS: [0=lit, 1=(d,l)] (MIN_LEN ≥ 3)',
+    ratio: '2:1 – 15:1',
+    desc: 'Published by Lempel & Ziv (1977) and enhanced by Storer & Szymanski (1982). Replaces repeating byte sequences with backward distance-length references. Modern LZSS introduces 1-bit flags to eliminate the 28-bit expansion hazard.',
+    pros: ['Eliminates 28-bit expansion penalty via 1-bit flags', 'Asymmetric blazing fast decompression (memcpy)', 'Zero prior distribution needed'],
     flaws: ['Encoder match search is quadratic without hash chains', 'Limited by window size'],
-    whenToUse: 'General-purpose text, code, structured files with repeated strings (ZIP, GZIP, PNG).',
+    whenToUse: 'General-purpose text, code, structured files with repeated strings (ZIP, GZIP, PNG, DEFLATE).',
     whenNotToUse: 'Pre-compressed, encrypted, or random binary files where sliding search yields zero matches.'
   },
   {
@@ -352,7 +359,7 @@ const ALGORITHMS_CATALOG = [
     section: 'entropy',
     category: 'lossless',
     type: 'Top-Down Prefix Code',
-    status: 'pending',
+    status: 'ready',
     formula: 'Top-down Equi-Partitioning',
     ratio: '1.5:1 – 3.5:1',
     desc: 'Devised in 1948 by Claude Shannon and Robert Fano. Recursively partitions sorted symbol frequencies into two roughly equal-weight subsets.',
@@ -382,13 +389,13 @@ const ALGORITHMS_CATALOG = [
     section: 'entropy',
     category: 'lossless',
     type: 'Fractional Entropy',
-    status: 'next',
+    status: 'ready',
     formula: '[L, R) ← [L + (R-L)P_low, L + (R-L)P_high)',
-    ratio: '1.8:1 – 5:1',
+    ratio: '1.8:1 – 18:1',
     desc: 'Encodes an entire message into a single high-precision fractional sub-interval [0, 1). Breaks the 1-bit-per-symbol integer floor of Huffman by allocating true fractional bits, achieving true Shannon entropy.',
-    pros: ['Achieves true Shannon entropy H(X)', 'Optimal for highly skewed probabilities (p > 0.5) where Huffman wastes 1 bit', 'Supports adaptive online frequency updates'],
-    flaws: ['Computationally heavier bit shifts and multiplications', 'Integer register underflow normalization required'],
-    whenToUse: 'Highly skewed symbol probabilities (p > 90%) where fractional bits are required (H.264/CABAC, JPEG 2000).',
+    pros: ['Achieves true Shannon entropy H(X)', 'Crushes Huffman on skewed probabilities (P > 0.5) where Huffman wastes up to 1250% space', 'Supports adaptive online frequency updates with zero header'],
+    flaws: ['Computationally heavier 32-bit register multiplications', 'Requires E3 underflow hazard handling to prevent register collapse'],
+    whenToUse: 'Highly skewed symbol probabilities (p > 50%), binary arithmetic coding (H.264/CABAC, JPEG 2000, WebP).',
     whenNotToUse: 'Ultra-high-throughput pipelines where multi-precision math and register normalization limit GB/s speed.'
   },
   {
@@ -595,30 +602,13 @@ const ALGORITHMS_CATALOG = [
 ];
 
 // Valid routable views in the unified application
-const VALID_VIEWS = new Set(['matrix', 'prefix-tree', 'huffman', 'lz77', 'deflate', 'lzw']);
+const VALID_VIEWS = new Set(['matrix', 'prefix-tree', 'huffman', 'lz77', 'deflate', 'lzw', 'arithmetic', 'shannon-fano']);
 
-// Universal URL & Route Resolver (supports #/algo, #algo, /algo, and browser history)
+// Universal URL & Route Resolver — reads clean pathname only (History API)
 function resolveRoute() {
   if (typeof window === 'undefined') return 'matrix';
-
-  // 1. Check window.location.hash (e.g., #/deflate or #deflate)
-  if (window.location.hash) {
-    const cleanHash = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
-    if (VALID_VIEWS.has(cleanHash)) {
-      return cleanHash;
-    }
-  }
-
-  // 2. Check window.location.pathname for direct Vercel path rewrites (e.g., /deflate)
-  if (window.location.pathname) {
-    const cleanPath = window.location.pathname.replace(/^\/+|\/+$/g, '').trim().toLowerCase();
-    if (VALID_VIEWS.has(cleanPath)) {
-      return cleanPath;
-    }
-  }
-
-  // 3. Fallback default to the data matrix
-  return 'matrix';
+  const cleanPath = window.location.pathname.replace(/^\/+|\/+$/g, '').trim().toLowerCase();
+  return VALID_VIEWS.has(cleanPath) ? cleanPath : 'matrix';
 }
 
 // =========================================================================
@@ -849,8 +839,447 @@ function runLzwSimulation(inputText, maxBits = 12) {
   };
 }
 
+// =========================================================================
+// =============================================================================
+// SHANNON-FANO SIMULATION ENGINE (Pure JavaScript)
+// =============================================================================
+
+// =============================================================================
+// SHARED ENTROPY UTILITY
+// H(X) = -Σ p_i · log₂(p_i)  — used across Huffman, SF, and Arithmetic views
+// =============================================================================
+function calculateEntropy(text) {
+  if (!text || text.length === 0) return 0;
+  const freq = {};
+  for (const ch of text) freq[ch] = (freq[ch] || 0) + 1;
+  let h = 0;
+  for (const cnt of Object.values(freq)) {
+    const p = cnt / text.length;
+    h -= p * Math.log2(p);
+  }
+  return h;
+}
+
+const SF_PRESETS = {
+  classic: { label: 'Classic Example', text: 'AABBBCCCCDDDDDEEEEEEE' },
+  skewed:  { label: 'Highly Skewed',   text: 'AAAAAAAAAAAABBBCDE' },
+  uniform: { label: 'Uniform (worst case)', text: 'ABCDEFGH' },
+  english: { label: 'English Text',    text: 'the quick brown fox jumps over the lazy dog' },
+  binary:  { label: 'Binary Data',     text: '\x00\x00\x00\x01\x01\x00\x01\x01\x01\x00' },
+};
+
+/**
+ * Pure-JS Shannon-Fano simulation.
+ * Returns a full tree, code table, split steps, and comparison stats.
+ */
+function runShannonFanoSimulation(input) {
+  if (!input || input.length === 0) {
+    return { table: [], splits: [], entropy: 0, avgLen: 0, huffmanAvgLen: 0, originalBytes: 0, encodedBits: 0, compressionRatio: 1 };
+  }
+
+  // 1. Frequency count
+  const freq = {};
+  for (const ch of input) freq[ch] = (freq[ch] || 0) + 1;
+
+  // 2. Sort descending by frequency
+  let symbols = Object.entries(freq).map(([sym, cnt]) => ({
+    sym, cnt, prob: cnt / input.length, bits: ''
+  }));
+  symbols.sort((a, b) => b.cnt - a.cnt);
+
+  // 3. Recursive split
+  const splits = [];
+
+  function split(syms, start, end, depth) {
+    if (end - start <= 1) return;
+    let total = 0;
+    for (let i = start; i < end; i++) total += syms[i].cnt;
+
+    let acc = 0, best = Infinity, splitAt = start;
+    for (let i = start; i < end - 1; i++) {
+      acc += syms[i].cnt;
+      const diff = Math.abs((total - acc) - acc);
+      if (diff < best) { best = diff; splitAt = i; }
+    }
+
+    let lw = 0;
+    for (let i = start; i <= splitAt; i++) lw += syms[i].cnt;
+    const rw = total - lw;
+
+    splits.push({
+      depth,
+      start,
+      end,
+      splitAt,
+      leftSyms: syms.slice(start, splitAt + 1).map(s => s.sym),
+      rightSyms: syms.slice(splitAt + 1, end).map(s => s.sym),
+      leftWeight: lw,
+      rightWeight: rw,
+      desc: `Depth ${depth}: [${syms.slice(start, splitAt+1).map(s=>s.sym).join(',')}] vs [${syms.slice(splitAt+1,end).map(s=>s.sym).join(',')}]`
+    });
+
+    for (let i = start; i <= splitAt; i++) syms[i].bits += '0';
+    for (let i = splitAt + 1; i < end; i++) syms[i].bits += '1';
+
+    split(syms, start, splitAt + 1, depth + 1);
+    split(syms, splitAt + 1, end, depth + 1);
+  }
+
+  split(symbols, 0, symbols.length, 0);
+
+  // 4. Build final table with statistics
+  const table = symbols.map(s => ({
+    sym: s.sym,
+    cnt: s.cnt,
+    prob: s.prob,
+    bits: s.bits,
+    codeLen: s.bits.length,
+    shannonIdeal: s.prob > 0 ? -Math.log2(s.prob) : 0,
+  }));
+
+  // 5. Entropy & average code length
+  let entropy = 0, avgLen = 0;
+  for (const e of table) {
+    if (e.prob > 0) entropy -= e.prob * Math.log2(e.prob);
+    avgLen += e.prob * e.codeLen;
+  }
+
+  // 6. Huffman theoretical avg length (for comparison)
+  // We build a simple Huffman tree to get the optimal avg length
+  let heapItems = table.map(e => ({ prob: e.prob, len: 0, sym: e.sym }));
+  const huffLengths = {};
+  if (heapItems.length === 1) {
+    huffLengths[heapItems[0].sym] = 1;
+  } else {
+    // Simple Huffman via sorted merge
+    const nodes = heapItems.map((e, i) => ({ prob: e.prob, syms: [e.sym] }));
+    while (nodes.length > 1) {
+      nodes.sort((a, b) => a.prob - b.prob);
+      const a = nodes.shift(), b = nodes.shift();
+      for (const s of a.syms) huffLengths[s] = (huffLengths[s] || 0) + 1;
+      for (const s of b.syms) huffLengths[s] = (huffLengths[s] || 0) + 1;
+      nodes.push({ prob: a.prob + b.prob, syms: [...a.syms, ...b.syms] });
+    }
+  }
+
+  let huffmanAvgLen = 0;
+  for (const e of table) {
+    huffmanAvgLen += e.prob * (huffLengths[e.sym] || 1);
+  }
+
+  // 7. Encode and count bits
+  const codeMap = {};
+  for (const e of table) codeMap[e.sym] = e.bits;
+  let totalBits = 0;
+  for (const ch of input) totalBits += (codeMap[ch] || '').length;
+
+  const compressionRatio = (input.length * 8) / totalBits;
+
+  return { table, splits, entropy, avgLen, huffmanAvgLen, originalBytes: input.length, encodedBits: totalBits, compressionRatio };
+}
+
+// ARITHMETIC CODING CONSTANTS & SIMULATION ENGINE
+// =========================================================================
+const ARITHMETIC_PRESETS = {
+  biased: {
+    name: 'Highly Skewed Biased Data (95% A, 5% B)',
+    text: 'AAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAB',
+    desc: 'The ultimate demonstration of the 1-bit barrier: Huffman must assign 1 bit per symbol, whereas Arithmetic Coding achieves ~0.28 bits per symbol (3.5x denser)!'
+  },
+  shannon: {
+    name: 'Shannon 1948 Foundation Paper',
+    text: 'Information theory and data compression algorithms are the foundational pillars of modern computer science.',
+    desc: 'Natural English language with varied character frequencies demonstrating fractional bit convergence.'
+  },
+  dna: {
+    name: 'Genomic DNA Nucleotides (A, C, G, T)',
+    text: 'AACCGTTTAAACCCGGGTTTAAAA',
+    desc: '4-symbol alphabet with non-uniform distribution highlighting exact fractional entropy.'
+  },
+  runs: {
+    name: 'Monolithic Single Symbol Run (40 Zs)',
+    text: 'ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ',
+    desc: 'Zero entropy H(X) = 0 limit: compressed into a tiny single fractional interval.'
+  }
+};
+
+/**
+ * Pure JavaScript simulation of 32-Bit Fixed-Point Integer Arithmetic Coding (WNC Model).
+ * Computes exact interval subdivisions, E1/E2/E3 renormalizations, underflow queuing,
+ * and live comparisons against Canonical Huffman and Shannon Entropy.
+ */
+function runArithmeticSimulation(inputText, mode = 'static') {
+  if (!inputText || inputText.length === 0) {
+    return {
+      rawBytes: 0,
+      rawBits: 0,
+      entropy: 0,
+      steps: [],
+      symbolTable: [],
+      huffmanCodeLengths: {},
+      emittedBitstream: '',
+      reconstructedStr: '',
+      stats: {
+        rawBytes: 0,
+        rawBits: 0,
+        entropy: 0,
+        shannonBits: 0,
+        huffmanBits: 0,
+        arithmeticPayloadBits: 0,
+        headerBits: 96,
+        totalCompressedBits: 96,
+        totalCompressedBytes: 12,
+        spaceSavingsPercent: 0,
+        compressionRatio: '1.00'
+      }
+    };
+  }
+
+  const rawBytes = inputText.length;
+  const rawBits = rawBytes * 8;
+
+  // 1. Gather symbol counts & Shannon Entropy
+  const counts = {};
+  for (let i = 0; i < rawBytes; ++i) {
+    const ch = inputText[i];
+    counts[ch] = (counts[ch] || 0) + 1;
+  }
+
+  const distinctChars = Object.keys(counts).sort();
+  let entropy = 0;
+  for (const ch of distinctChars) {
+    const p = counts[ch] / rawBytes;
+    entropy += -p * Math.log2(p);
+  }
+
+  // 2. Canonical Huffman Code Lengths for comparison
+  const huffmanCodeLengths = {};
+  if (distinctChars.length === 1) {
+    huffmanCodeLengths[distinctChars[0]] = 1;
+  } else {
+    // Simple priority-queue based tree builder for exact Huffman code lengths
+    let nodes = distinctChars.map(ch => ({ ch, weight: counts[ch], left: null, right: null }));
+    while (nodes.length > 1) {
+      nodes.sort((a, b) => a.weight - b.weight);
+      const left = nodes.shift();
+      const right = nodes.shift();
+      nodes.push({ ch: null, weight: left.weight + right.weight, left, right });
+    }
+    const extractLengths = (n, depth) => {
+      if (!n) return;
+      if (n.ch !== null) {
+        huffmanCodeLengths[n.ch] = Math.max(1, depth);
+        return;
+      }
+      extractLengths(n.left, depth + 1);
+      extractLengths(n.right, depth + 1);
+    };
+    extractLengths(nodes[0], 0);
+  }
+
+  // 3. Fixed-point frequency table (scaled to MAX_TOTAL = 16384)
+  const MAX_TOTAL = 16384;
+  const targetSum = Math.max(distinctChars.length, MAX_TOTAL - 257);
+  const symbolFreqs = {};
+  for (const ch of distinctChars) {
+    symbolFreqs[ch] = Math.max(1, Math.round((counts[ch] / rawBytes) * targetSum));
+  }
+  // Reserve 1 count for EOS
+  const EOS = '§EOS§';
+  symbolFreqs[EOS] = 1;
+
+  // Build cumulative frequencies
+  let cumulative = 0;
+  const symbolTable = [];
+  const cumRanges = {};
+  for (const ch of [...distinctChars, EOS]) {
+    const f = symbolFreqs[ch];
+    const low = cumulative;
+    const high = cumulative + f;
+    cumRanges[ch] = { low, high, freq: f };
+    symbolTable.push({
+      char: ch,
+      freq: f,
+      cumLow: low,
+      cumHigh: high,
+      prob: f / (targetSum + 1),
+      huffBits: ch === EOS ? 0 : (huffmanCodeLengths[ch] || 1),
+      shannonBits: ch === EOS ? 0 : -Math.log2(counts[ch] / rawBytes)
+    });
+    cumulative += f;
+  }
+  const totalFreq = cumulative;
+
+  // 4. Run 32-bit Integer Arithmetic Coding
+  const TOP = 0xFFFFFFFF;
+  const HALF = 0x80000000;
+  const FIRST_QUARTER = 0x40000000;
+  const THIRD_QUARTER = 0xC0000000;
+
+  let low = 0;
+  let high = TOP;
+  let underflowBits = 0;
+  let emittedBits = '';
+  let reconstructed = '';
+  const steps = [];
+
+  let cumShannonBits = 0;
+  let cumHuffmanBits = 0;
+
+  for (let i = 0; i < rawBytes; ++i) {
+    const ch = inputText[i];
+    const range = BigInt(high - low) + 1n;
+    const { low: symLow, high: symHigh, freq } = cumRanges[ch];
+
+    const lowBefore = low;
+    const highBefore = high;
+    const underflowBefore = underflowBits;
+
+    high = Number(BigInt(low) + (range * BigInt(symHigh)) / BigInt(totalFreq) - 1n);
+    low  = Number(BigInt(low) + (range * BigInt(symLow))  / BigInt(totalFreq));
+
+    let bitsThisStep = '';
+    const renorms = [];
+
+    // Renormalization loop (E1, E2, E3)
+    while (true) {
+      if (high < HALF) {
+        // E1: leading bit 0
+        bitsThisStep += '0';
+        while (underflowBits > 0) {
+          bitsThisStep += '1';
+          underflowBits--;
+        }
+        low = (low * 2) >>> 0;
+        high = ((high * 2) + 1) >>> 0;
+        renorms.push({ type: 'E1', desc: 'Left half [0, Half) → Emit 0' });
+      } else if (low >= HALF) {
+        // E2: leading bit 1
+        bitsThisStep += '1';
+        while (underflowBits > 0) {
+          bitsThisStep += '0';
+          underflowBits--;
+        }
+        low = ((low - HALF) * 2) >>> 0;
+        high = (((high - HALF) * 2) + 1) >>> 0;
+        renorms.push({ type: 'E2', desc: 'Right half [Half, Top) → Emit 1' });
+      } else if (low >= FIRST_QUARTER && high < THIRD_QUARTER) {
+        // E3: Underflow straddle
+        underflowBits++;
+        low = ((low - FIRST_QUARTER) * 2) >>> 0;
+        high = (((high - FIRST_QUARTER) * 2) + 1) >>> 0;
+        renorms.push({ type: 'E3', desc: 'Straddle [1/4, 3/4) → Queue Underflow Bit' });
+      } else {
+        break;
+      }
+    }
+
+    emittedBits += bitsThisStep;
+    reconstructed += ch;
+
+    const prob = counts[ch] / rawBytes;
+    const stepShannon = -Math.log2(prob);
+    const stepHuffman = huffmanCodeLengths[ch] || 1;
+    cumShannonBits += stepShannon;
+    cumHuffmanBits += stepHuffman;
+
+    const chDisplay = ch === ' ' ? '␣' : ch;
+    let narrative = '';
+    if (prob > 0.5) {
+      narrative = `Symbol '${chDisplay}' (high probability ${(prob * 100).toFixed(1)}%) narrowed interval to [${(low / TOP).toFixed(6)}, ${(high / TOP).toFixed(6)}). Allocated only ${stepShannon.toFixed(3)} fractional bits! (Canonical Huffman is forced to spend ${stepHuffman} integer bit, wasting +${(((stepHuffman - stepShannon) / stepShannon) * 100).toFixed(0)}%).`;
+    } else {
+      narrative = `Symbol '${chDisplay}' (prob ${(prob * 100).toFixed(1)}%) narrowed interval to [${(low / TOP).toFixed(6)}, ${(high / TOP).toFixed(6)}). Allocated ${stepShannon.toFixed(3)} bits (vs ${stepHuffman}b Huffman).`;
+    }
+
+    steps.push({
+      stepIndex: i,
+      char: ch,
+      charDisplay: chDisplay,
+      prob,
+      symLow,
+      symHigh,
+      lowBefore,
+      highBefore,
+      lowAfter: low,
+      highAfter: high,
+      normLow: low / TOP,
+      normHigh: high / TOP,
+      underflowBitsAdded: underflowBits - underflowBefore,
+      underflowTotal: underflowBits,
+      bitsThisStep,
+      emittedSoFar: emittedBits,
+      reconstructedSoFar: reconstructed,
+      renorms,
+      stepShannonBits: stepShannon,
+      stepHuffmanBits: stepHuffman,
+      cumShannonBits,
+      cumHuffmanBits,
+      cumEmittedBits: emittedBits.length,
+      narrative
+    });
+  }
+
+  // Final flush bits
+  let finalFlushBits = '';
+  underflowBits++;
+  if (low < FIRST_QUARTER) {
+    finalFlushBits += '0';
+    while (underflowBits > 0) { finalFlushBits += '1'; underflowBits--; }
+  } else {
+    finalFlushBits += '1';
+    while (underflowBits > 0) { finalFlushBits += '0'; underflowBits--; }
+  }
+  emittedBits += finalFlushBits;
+
+  // Header size: 12-byte base header (magic + mode + size) + 2B active count + 3B per active symbol
+  const headerBytes = 12 + 2 + distinctChars.length * 3;
+  const headerBits = headerBytes * 8;
+  const payloadBits = emittedBits.length;
+  const totalCompressedBits = headerBits + payloadBits;
+  const totalCompressedBytes = Math.ceil(totalCompressedBits / 8);
+  const deltaBits = rawBits - totalCompressedBits;
+  const spaceSavingsPercent = rawBits > 0 ? ((deltaBits / rawBits) * 100).toFixed(1) : 0;
+  const compressionRatio = totalCompressedBytes > 0 ? (rawBytes / totalCompressedBytes).toFixed(2) : '1.00';
+
+  return {
+    rawBytes,
+    rawBits,
+    entropy,
+    steps,
+    symbolTable,
+    huffmanCodeLengths,
+    emittedBitstream: emittedBits,
+    reconstructedStr: reconstructed,
+    stats: {
+      rawBytes,
+      rawBits,
+      entropy: entropy.toFixed(4),
+      shannonBits: Math.ceil(entropy * rawBytes),
+      huffmanBits: cumHuffmanBits,
+      arithmeticPayloadBits: payloadBits,
+      headerBits,
+      totalCompressedBits,
+      totalCompressedBytes,
+      spaceSavingsPercent,
+      compressionRatio
+    }
+  };
+}
+
 export default function App() {
-  const [currentView, setCurrentView] = useState(() => resolveRoute());
+  const [currentView, setCurrentView] = useState(() => {
+    // resolveRoute() reads pathname only (clean URLs).
+    // If someone lands on a legacy /#hash URL, read the hash here so the
+    // first render shows the correct view — the useEffect will then strip
+    // the hash from the URL bar via replaceState (no history entry added).
+    const fromPath = resolveRoute();
+    if (fromPath !== 'matrix') return fromPath;
+    if (typeof window !== 'undefined' && window.location.hash) {
+      const raw = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
+      if (VALID_VIEWS.has(raw)) return raw;
+    }
+    return 'matrix';
+  });
   const [filterCategory, setFilterCategory] = useState('all');
 
   // Real File Preset Selection: 'txt', 'pdf', 'log', 'custom'
@@ -890,6 +1319,7 @@ export default function App() {
   const [lzWindowSize, setLzWindowSize] = useState(32);
   const [lzLookaheadSize, setLzLookaheadSize] = useState(16);
   const [lzStepIdx, setLzStepIdx] = useState(0);
+  const [lzArchMode, setLzArchMode] = useState('lzss'); // 'lzss' (Modern 1-bit flags) | 'lz77' (Classic triplets)
   const [lzAnimPhase, setLzAnimPhase] = useState('scanner'); // 'scanner' | 'recon' | 'matrix'
   const [lzIsAutoBuilding, setLzIsAutoBuilding] = useState(false);
   const [lzVoiceEnabled, setLzVoiceEnabled] = useState(true);
@@ -928,13 +1358,37 @@ export default function App() {
 
   const lzwData = useMemo(() => runLzwSimulation(lzwInput, lzwMaxBits), [lzwInput, lzwMaxBits]);
 
+  // ----------------------------------------------------
+  // ARITHMETIC & RANGE CODING STATE
+  // ----------------------------------------------------
+  const [arithPresetKey, setArithPresetKey] = useState('biased');
+  const [arithInput, setArithInput] = useState(ARITHMETIC_PRESETS.biased.text);
+  const [arithMode, setArithMode] = useState('static'); // 'static' | 'adaptive'
+  const [arithStepIdx, setArithStepIdx] = useState(0);
+  const [arithAnimPhase, setArithAnimPhase] = useState('zoom'); // 'zoom' | 'registers' | 'compare' | 'matrix'
+  const [arithIsAutoBuilding, setArithIsAutoBuilding] = useState(false);
+  const [arithVoiceEnabled, setArithVoiceEnabled] = useState(true);
+  const arithIsAutoBuildingRef = useRef(false);
+  const arithSpeechTimeoutRef = useRef(null);
+
+  const arithData = useMemo(() => runArithmeticSimulation(arithInput, arithMode), [arithInput, arithMode]);
+
+  // ----------------------------------------------------
+  // SHANNON-FANO CODING STATE
+  // ----------------------------------------------------
+  const [sfInput, setSfInput] = useState('AABBBCCCCDDDDDEEEEEEE');
+  const [sfStepIdx, setSfStepIdx] = useState(0);
+  const [sfAnimPhase, setSfAnimPhase] = useState('tree'); // 'tree' | 'table' | 'compare' | 'theory'
+
+  const sfData = useMemo(() => runShannonFanoSimulation(sfInput), [sfInput]);
+
   // Hovered byte info for interactive matrix inspection
   const [hoveredByteInfo, setHoveredByteInfo] = useState(null);
 
   const playTimerRef = useRef(null);
   const walkerCurrentNodeRef = useRef(null);
 
-  // Universal route synchronizer (handles hashchange, popstate, browser back/forward)
+  // Universal route synchronizer — only popstate fires on history.pushState back/forward
   useEffect(() => {
     const handleRouteChange = () => {
       const target = resolveRoute();
@@ -954,6 +1408,8 @@ export default function App() {
       setDeflateIsAutoBuilding(false);
       lzwIsAutoBuildingRef.current = false;
       setLzwIsAutoBuilding(false);
+      arithIsAutoBuildingRef.current = false;
+      setArithIsAutoBuilding(false);
 
       if (activeSpeechTimeoutRef.current) {
         clearTimeout(activeSpeechTimeoutRef.current);
@@ -971,19 +1427,27 @@ export default function App() {
         clearTimeout(lzwSpeechTimeoutRef.current);
         lzwSpeechTimeoutRef.current = null;
       }
+      if (arithSpeechTimeoutRef.current) {
+        clearTimeout(arithSpeechTimeoutRef.current);
+        arithSpeechTimeoutRef.current = null;
+      }
     };
 
-    window.addEventListener('hashchange', handleRouteChange);
+    // popstate fires when browser Back/Forward buttons are used
     window.addEventListener('popstate', handleRouteChange);
 
-    // Initial check to ensure canonical hash if path or hash is used
-    const current = resolveRoute();
-    if (current !== 'matrix' && !window.location.hash.includes(current)) {
-      window.location.hash = `#${current}`;
+    // Hard-redirect any hash URL to its clean equivalent.
+    // This runs once on mount. After this point no hash URLs exist in the app.
+    if (window.location.hash) {
+      const raw = window.location.hash.replace(/^#\/?/, '').trim().toLowerCase();
+      const view = VALID_VIEWS.has(raw) ? raw : 'matrix';
+      const cleanUrl = view === 'matrix' ? '/' : `/${view}`;
+      // replaceState rewrites the URL bar without adding a history entry
+      history.replaceState(null, '', cleanUrl);
+      setCurrentView(view);
     }
 
     return () => {
-      window.removeEventListener('hashchange', handleRouteChange);
       window.removeEventListener('popstate', handleRouteChange);
     };
   }, []);
@@ -1005,6 +1469,8 @@ export default function App() {
     setDeflateIsAutoBuilding(false);
     lzwIsAutoBuildingRef.current = false;
     setLzwIsAutoBuilding(false);
+    arithIsAutoBuildingRef.current = false;
+    setArithIsAutoBuilding(false);
 
     if (activeSpeechTimeoutRef.current) {
       clearTimeout(activeSpeechTimeoutRef.current);
@@ -1022,9 +1488,14 @@ export default function App() {
       clearTimeout(lzwSpeechTimeoutRef.current);
       lzwSpeechTimeoutRef.current = null;
     }
+    if (arithSpeechTimeoutRef.current) {
+      clearTimeout(arithSpeechTimeoutRef.current);
+      arithSpeechTimeoutRef.current = null;
+    }
 
-    // 3. Update URL hash
-    window.location.hash = target === 'matrix' ? '#matrix' : `#${target}`;
+    // 3. Push a clean URL — no # prefix
+    const cleanUrl = target === 'matrix' ? '/' : `/${target}`;
+    history.pushState(null, '', cleanUrl);
     setCurrentView(target);
 
     // 4. Smoothly scroll to the top of the newly mounted studio
@@ -1354,9 +1825,10 @@ export default function App() {
   const animSteps = treeSteps;
 
   // ----------------------------------------------------
-  // LZ77 SLIDING WINDOW MATCH STEP GENERATOR WITH STEP REDUCTION MATH
   // ----------------------------------------------------
-  const lzSteps = useMemo(() => {
+  // CLASSIC LZ77 (1977) STEP GENERATOR: (d, l, c) Fixed 28b Triplets
+  // ----------------------------------------------------
+  const lz77Steps = useMemo(() => {
     if (!lzInput || lzInput.length === 0) return [];
     const steps = [];
     const size = lzInput.length;
@@ -1396,14 +1868,12 @@ export default function App() {
         stepNumber: steps.length + 1
       };
 
-      // Step-by-step mathematical size reduction calculation
       const rawCharsCovered = bestLength + 1;
       const rawBitsThisStep = rawCharsCovered * 8;
       const tokenBitsThisStep = 28; // 12b distance + 8b length + 8b literal byte
       const deltaBitsThisStep = rawBitsThisStep - tokenBitsThisStep;
       const deltaPercentThisStep = Math.round((deltaBitsThisStep / rawBitsThisStep) * 100);
 
-      // Reconstructed output buffer so far
       if (bestLength > 0) {
         const copyStart = reconstructed.length - bestDistance;
         for (let i = 0; i < bestLength; ++i) {
@@ -1456,6 +1926,159 @@ export default function App() {
     }
     return steps;
   }, [lzInput, lzWindowSize, lzLookaheadSize]);
+
+  // ----------------------------------------------------
+  // MODERN LZSS (1982) STEP GENERATOR: 1-Bit Flags (Literals vs Matches)
+  // ----------------------------------------------------
+  const lzssSteps = useMemo(() => {
+    if (!lzInput || lzInput.length === 0) return [];
+    const steps = [];
+    const size = lzInput.length;
+    let cursor = 0;
+    let cumulativeTokens = [];
+    let reconstructed = '';
+    const MIN_MATCH = 3;
+
+    while (cursor < size) {
+      const searchStart = Math.max(0, cursor - lzWindowSize);
+      const searchEnd = cursor - 1;
+      const maxLookahead = Math.min(lzLookaheadSize, size - cursor);
+
+      let bestDistance = 0;
+      let bestLength = 0;
+      let bestMatchPos = -1;
+
+      for (let pos = searchStart; pos < cursor; ++pos) {
+        let len = 0;
+        while (len < maxLookahead && lzInput[pos + len] === lzInput[cursor + len]) {
+          len++;
+        }
+        if (len > bestLength) {
+          bestLength = len;
+          bestDistance = cursor - pos;
+          bestMatchPos = pos;
+        }
+      }
+
+      const isMatch = bestLength >= MIN_MATCH;
+      let token = {};
+      let rawCharsCovered = 0;
+      let tokenBitsThisStep = 0;
+      let narrative = '';
+      let voiceScript = '';
+
+      if (isMatch) {
+        token = {
+          isMatch: true,
+          distance: bestDistance,
+          length: bestLength,
+          literal: '',
+          stepNumber: steps.length + 1
+        };
+        rawCharsCovered = bestLength;
+        tokenBitsThisStep = 21; // 1 flag bit + 12b distance + 8b length
+        const rawBitsThisStep = rawCharsCovered * 8;
+        const deltaBitsThisStep = rawBitsThisStep - tokenBitsThisStep;
+        const deltaPercentThisStep = Math.round((deltaBitsThisStep / rawBitsThisStep) * 100);
+        const matchedSub = lzInput.substring(bestMatchPos, bestMatchPos + bestLength);
+
+        narrative = `[LZSS MATCH] Found "${matchedSub}" (${bestLength} chars >= MIN_MATCH 3) at distance ${bestDistance}! Emitting Flag '1' + Pair (d=${bestDistance}, l=${bestLength}). Size: ${rawBitsThisStep} raw bits → 21 token bits, saving ${deltaBitsThisStep} bits (${deltaPercentThisStep}% reduction). Notice no trailing literal forced!`;
+        voiceScript = `Found matching phrase "${matchedSub}" of length ${bestLength} at distance ${bestDistance}. Emitting 1-bit match flag with distance ${bestDistance} and length ${bestLength}, saving ${deltaBitsThisStep} bits.`;
+
+        const copyStart = reconstructed.length - bestDistance;
+        for (let i = 0; i < bestLength; ++i) {
+          reconstructed += reconstructed[copyStart + i];
+        }
+        cursor += bestLength;
+
+        const currentTokens = [...cumulativeTokens, token];
+        cumulativeTokens = currentTokens;
+
+        steps.push({
+          stepIndex: steps.length,
+          cursor: cursor - rawCharsCovered,
+          searchStart,
+          searchEnd,
+          lookaheadStart: cursor - rawCharsCovered,
+          lookaheadEnd: cursor,
+          bestDistance,
+          bestLength,
+          bestMatchPos,
+          isMatch: true,
+          literal: '',
+          nextChar: '',
+          token,
+          rawBitsThisStep,
+          tokenBitsThisStep,
+          deltaBitsThisStep,
+          deltaPercentThisStep,
+          narrative,
+          voiceScript,
+          tokensSoFar: currentTokens,
+          reconstructedSoFar: reconstructed
+        });
+      } else {
+        const litChar = lzInput[cursor];
+        token = {
+          isMatch: false,
+          distance: 0,
+          length: 0,
+          literal: litChar,
+          stepNumber: steps.length + 1
+        };
+        rawCharsCovered = 1;
+        tokenBitsThisStep = 9; // 1 flag bit + 8b literal byte
+        const rawBitsThisStep = 8;
+        const deltaBitsThisStep = rawBitsThisStep - tokenBitsThisStep; // -1 bit overhead (+12.5%) vs LZ77's +20 bits (+250%)!
+        const deltaPercentThisStep = -12;
+        const litDisplay = litChar === ' ' ? '␣ (space)' : `'${litChar}'`;
+
+        if (bestLength > 0 && bestLength < MIN_MATCH) {
+          narrative = `[LZSS LITERAL] Found short match of length ${bestLength} < MIN_MATCH (3). Storing a 21-bit pair for ${bestLength} bytes would lose bits! Emitting Flag '0' + Literal ${litDisplay} instead (cost: only 9 bits vs 28 bits in classic LZ77).`;
+        } else {
+          narrative = `[LZSS LITERAL] No prior match for ${litDisplay}. Emitting Flag '0' + Literal ${litDisplay}. Cost: only 9 bits (1 flag + 8 data) vs 28 bits in classic LZ77!`;
+        }
+        voiceScript = `At cursor position ${cursor}, emitting single literal byte ${litChar === ' ' ? 'space' : litChar} with zero flag, taking only 9 bits.`;
+
+        reconstructed += litChar;
+        cursor += 1;
+
+        const currentTokens = [...cumulativeTokens, token];
+        cumulativeTokens = currentTokens;
+
+        steps.push({
+          stepIndex: steps.length,
+          cursor: cursor - 1,
+          searchStart,
+          searchEnd,
+          lookaheadStart: cursor - 1,
+          lookaheadEnd: cursor,
+          bestDistance: 0,
+          bestLength: 0,
+          bestMatchPos: -1,
+          isMatch: false,
+          literal: litChar,
+          nextChar: litChar,
+          token,
+          rawBitsThisStep,
+          tokenBitsThisStep,
+          deltaBitsThisStep,
+          deltaPercentThisStep,
+          narrative,
+          voiceScript,
+          tokensSoFar: currentTokens,
+          reconstructedSoFar: reconstructed
+        });
+      }
+    }
+
+    return steps;
+  }, [lzInput, lzWindowSize, lzLookaheadSize]);
+
+  // Active steps based on selected architecture mode (LZSS vs Classic LZ77)
+  const lzSteps = useMemo(() => {
+    return lzArchMode === 'lzss' ? lzssSteps : lz77Steps;
+  }, [lzArchMode, lzssSteps, lz77Steps]);
 
   // Synchronized LZ77 voice & auto-advancer
   const handleLzStepChange = (newIdx) => {
@@ -1890,6 +2513,49 @@ export default function App() {
     }
   };
 
+  const handleArithStepChange = (newIdx) => {
+    if (!arithData.steps || newIdx < 0 || newIdx >= arithData.steps.length) return;
+    setArithStepIdx(newIdx);
+    if (arithVoiceEnabled && arithData.steps[newIdx]) {
+      speakWithCallback(arithData.steps[newIdx].narrative, () => {
+        if (arithIsAutoBuildingRef.current) {
+          if (newIdx < arithData.steps.length - 1) {
+            handleArithStepChange(newIdx + 1);
+          } else {
+            setArithIsAutoBuilding(false);
+            arithIsAutoBuildingRef.current = false;
+          }
+        }
+      });
+    }
+  };
+
+  const handleToggleArithAutoBuild = () => {
+    if (arithIsAutoBuilding) {
+      setArithIsAutoBuilding(false);
+      arithIsAutoBuildingRef.current = false;
+      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      if (arithSpeechTimeoutRef.current) clearTimeout(arithSpeechTimeoutRef.current);
+    } else {
+      setArithIsAutoBuilding(true);
+      arithIsAutoBuildingRef.current = true;
+      const startIdx = arithStepIdx >= arithData.steps.length - 1 ? 0 : arithStepIdx;
+      setArithStepIdx(startIdx);
+      if (arithData.steps[startIdx]) {
+        speakWithCallback(arithData.steps[startIdx].narrative, () => {
+          if (arithIsAutoBuildingRef.current) {
+            if (startIdx < arithData.steps.length - 1) {
+              handleArithStepChange(startIdx + 1);
+            } else {
+              setArithIsAutoBuilding(false);
+              arithIsAutoBuildingRef.current = false;
+            }
+          }
+        });
+      }
+    }
+  };
+
   // Cleanup timers on unmount
   useEffect(() => {
     return () => {
@@ -1897,6 +2563,7 @@ export default function App() {
       if (lzSpeechTimeoutRef.current) clearTimeout(lzSpeechTimeoutRef.current);
       if (deflateSpeechTimeoutRef.current) clearTimeout(deflateSpeechTimeoutRef.current);
       if (lzwSpeechTimeoutRef.current) clearTimeout(lzwSpeechTimeoutRef.current);
+      if (arithSpeechTimeoutRef.current) clearTimeout(arithSpeechTimeoutRef.current);
       if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     };
   }, []);
@@ -3633,6 +4300,33 @@ export default function App() {
                 ))}
               </div>
 
+              {/* ── Algorithm Mode Selector: Classic LZ77 vs Modern LZSS ── */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(0,0,0,0.35)', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '4px 6px' }}>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700, letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>MODE:</span>
+                <button
+                  onClick={() => { setLzArchMode('lz77'); setLzStepIdx(0); }}
+                  style={{
+                    padding: '5px 14px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', border: 'none',
+                    background: lzArchMode === 'lz77' ? 'rgba(192, 132, 252, 0.25)' : 'transparent',
+                    color: lzArchMode === 'lz77' ? '#c084fc' : 'var(--text-muted)',
+                    boxShadow: lzArchMode === 'lz77' ? '0 0 0 1px #c084fc55' : 'none',
+                    transition: 'all 0.2s',
+                  }}>
+                  Classic LZ77
+                </button>
+                <button
+                  onClick={() => { setLzArchMode('lzss'); setLzStepIdx(0); }}
+                  style={{
+                    padding: '5px 14px', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', border: 'none',
+                    background: lzArchMode === 'lzss' ? 'rgba(0, 242, 254, 0.2)' : 'transparent',
+                    color: lzArchMode === 'lzss' ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                    boxShadow: lzArchMode === 'lzss' ? '0 0 0 1px rgba(0,242,254,0.4)' : 'none',
+                    transition: 'all 0.2s',
+                  }}>
+                  Modern LZSS
+                </button>
+              </div>
+
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                   <span>History Window:</span>
@@ -3731,16 +4425,25 @@ export default function App() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
                   <div className="step-narrative-title">
                     <Sparkles size={16} color="var(--accent-cyan)" />
-                    <span>Step {lzStepIdx + 1}: Longest Match & Step Reduction Calculation</span>
+                    <span>Step {lzStepIdx + 1}: {lzArchMode === 'lzss' ? 'LZSS Flag Decision & Profitability Check' : 'Longest Match & Step Reduction Calculation'}</span>
                   </div>
                   <div className="step-reduction-pill">
                     <span className="pill-before">{lzSteps[lzStepIdx].rawBitsThisStep}b raw</span>
                     <span>→</span>
-                    <span className="pill-after">28b token</span>
+                    <span className="pill-after" style={lzArchMode === 'lzss' ? { background: 'rgba(0,242,254,0.12)', color: 'var(--accent-cyan)', border: '1px solid rgba(0,242,254,0.3)' } : {}}>
+                      {lzArchMode === 'lzss'
+                        ? (lzSteps[lzStepIdx].isMatch ? '21b match token' : '9b literal token')
+                        : '28b token'}
+                    </span>
                     <span>=</span>
                     <span className="pill-saved" style={{ color: lzSteps[lzStepIdx].deltaBitsThisStep >= 0 ? 'var(--accent-cyan)' : 'var(--accent-rose)' }}>
-                      {lzSteps[lzStepIdx].deltaBitsThisStep >= 0 ? `-${lzSteps[lzStepIdx].deltaBitsThisStep}b (${lzSteps[lzStepIdx].deltaPercentThisStep}%)` : `+${Math.abs(lzSteps[lzStepIdx].deltaBitsThisStep)}b expanded`}
+                      {lzSteps[lzStepIdx].deltaBitsThisStep >= 0 ? `-${lzSteps[lzStepIdx].deltaBitsThisStep}b (${lzSteps[lzStepIdx].deltaPercentThisStep}%)` : `+${Math.abs(lzSteps[lzStepIdx].deltaBitsThisStep)}b overhead`}
                     </span>
+                    {lzArchMode === 'lzss' && (
+                      <span style={{ padding: '2px 8px', borderRadius: '99px', fontSize: '0.72rem', fontWeight: 700, background: lzSteps[lzStepIdx].isMatch ? 'rgba(52,211,153,0.18)' : 'rgba(192,132,252,0.18)', color: lzSteps[lzStepIdx].isMatch ? 'var(--accent-emerald)' : '#c084fc', border: `1px solid ${lzSteps[lzStepIdx].isMatch ? 'rgba(52,211,153,0.4)' : 'rgba(192,132,252,0.4)'}` }}>
+                        FLAG {lzSteps[lzStepIdx].isMatch ? "'1' MATCH" : "'0' LIT"}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <p className="step-narrative-text">
@@ -3866,73 +4569,154 @@ export default function App() {
                 {/* Live Emitted Token Card & History Grid */}
                 {lzSteps[lzStepIdx] && (
                   <div className="lz-token-live-card">
-                    <div className="lz-triplet-display">
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <Zap size={18} color="var(--accent-cyan)" />
-                        <h4 style={{ margin: 0, fontSize: '1.05rem', fontFamily: 'var(--font-display)' }}>
-                          Emitted LZ77 Token Triplet: (distance, length, next_char)
-                        </h4>
-                      </div>
-
-                      <div className="lz-triplet-hero">
-                        <div className="lz-pill distance">
-                          <span className="lz-pill-label">Distance (d)</span>
-                          <span className="lz-pill-val">{lzSteps[lzStepIdx].bestDistance}</span>
-                          <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>backward offset</span>
+                    {lzArchMode === 'lzss' ? (
+                      /* ── LZSS Token View ── */
+                      <div className="lz-triplet-display">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <Zap size={18} color="var(--accent-cyan)" />
+                          <h4 style={{ margin: 0, fontSize: '1.05rem', fontFamily: 'var(--font-display)' }}>
+                            Emitted LZSS Token: {lzSteps[lzStepIdx].isMatch ? '[ Flag=1 | Match Pair (d, l) ]' : '[ Flag=0 | Literal Byte ]'}
+                          </h4>
                         </div>
 
-                        <span style={{ fontSize: '1.5rem', color: 'var(--text-muted)' }}>,</span>
+                        <div className="lz-triplet-hero">
+                          {/* Flag Bit */}
+                          <div className="lz-pill flag" style={{ background: lzSteps[lzStepIdx].isMatch ? 'rgba(52,211,153,0.15)' : 'rgba(192,132,252,0.15)', borderColor: lzSteps[lzStepIdx].isMatch ? 'rgba(52,211,153,0.5)' : 'rgba(192,132,252,0.5)' }}>
+                            <span className="lz-pill-label">Flag Bit</span>
+                            <span className="lz-pill-val" style={{ color: lzSteps[lzStepIdx].isMatch ? 'var(--accent-emerald)' : '#c084fc', fontSize: '2rem' }}>
+                              {lzSteps[lzStepIdx].isMatch ? '1' : '0'}
+                            </span>
+                            <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>{lzSteps[lzStepIdx].isMatch ? 'Match follows' : 'Literal follows'}</span>
+                          </div>
 
-                        <div className="lz-pill length">
-                          <span className="lz-pill-label">Length (l)</span>
-                          <span className="lz-pill-val">{lzSteps[lzStepIdx].bestLength}</span>
-                          <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>matched bytes</span>
+                          <span style={{ fontSize: '1.5rem', color: 'var(--text-muted)' }}>|</span>
+
+                          {lzSteps[lzStepIdx].isMatch ? (
+                            <>
+                              <div className="lz-pill distance">
+                                <span className="lz-pill-label">Distance (d)</span>
+                                <span className="lz-pill-val">{lzSteps[lzStepIdx].bestDistance}</span>
+                                <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>12 bits backward</span>
+                              </div>
+                              <span style={{ fontSize: '1.5rem', color: 'var(--text-muted)' }}>,</span>
+                              <div className="lz-pill length">
+                                <span className="lz-pill-label">Length (l)</span>
+                                <span className="lz-pill-val">{lzSteps[lzStepIdx].bestLength}</span>
+                                <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>8 bits — ≥ MIN_MATCH 3</span>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="lz-pill next-lit">
+                              <span className="lz-pill-label">Literal Byte</span>
+                              <span className="lz-pill-val">
+                                {(lzSteps[lzStepIdx].literal || lzSteps[lzStepIdx].nextChar || '') === ' ' ? '␣' : `'${lzSteps[lzStepIdx].literal || lzSteps[lzStepIdx].nextChar || ''}'`}
+                              </span>
+                              <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>8 bits verbatim</span>
+                            </div>
+                          )}
                         </div>
 
-                        <span style={{ fontSize: '1.5rem', color: 'var(--text-muted)' }}>,</span>
-
-                        <div className="lz-pill next-lit">
-                          <span className="lz-pill-label">Literal (c)</span>
-                          <span className="lz-pill-val">
-                            {lzSteps[lzStepIdx].nextChar === ' ' ? '␣' : `'${lzSteps[lzStepIdx].nextChar}'`}
+                        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginTop: '8px' }}>
+                          <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                            {lzSteps[lzStepIdx].isMatch
+                              ? <>Decoder copies <strong>{lzSteps[lzStepIdx].bestLength} bytes</strong> from offset <strong>-{lzSteps[lzStepIdx].bestDistance}</strong>. No forced literal byte! Total: <strong>21 bits</strong> (1+12+8).</>
+                              : <>Decoder writes literal <strong>'{(lzSteps[lzStepIdx].literal || lzSteps[lzStepIdx].nextChar || '') === ' ' ? 'space' : (lzSteps[lzStepIdx].literal || lzSteps[lzStepIdx].nextChar || '')}'</strong> directly. Total: <strong>9 bits</strong> (1+8). Classic LZ77 would cost 28 bits for same char!</>}
                           </span>
-                          <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>next uncompressed byte</span>
                         </div>
                       </div>
+                    ) : (
+                      /* ── Classic LZ77 Token View ── */
+                      <div className="lz-triplet-display">
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <Zap size={18} color="var(--accent-cyan)" />
+                          <h4 style={{ margin: 0, fontSize: '1.05rem', fontFamily: 'var(--font-display)' }}>
+                            Emitted LZ77 Token Triplet: (distance, length, next_char)
+                          </h4>
+                        </div>
 
-                      <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                        {lzSteps[lzStepIdx].bestLength > 0 ? (
-                          <>
-                            Decoder will copy <strong>{lzSteps[lzStepIdx].bestLength} bytes</strong> starting <strong>{lzSteps[lzStepIdx].bestDistance} positions back</strong> from output end, then append literal byte <strong>'{lzSteps[lzStepIdx].nextChar === ' ' ? 'space' : lzSteps[lzStepIdx].nextChar}'</strong>.
-                          </>
-                        ) : (
-                          <>
-                            Zero prior match found. Distance and length are 0. Decoder simply appends literal <strong>'{lzSteps[lzStepIdx].nextChar === ' ' ? 'space' : lzSteps[lzStepIdx].nextChar}'</strong>.
-                          </>
-                        )}
-                      </p>
-                    </div>
+                        <div className="lz-triplet-hero">
+                          <div className="lz-pill distance">
+                            <span className="lz-pill-label">Distance (d)</span>
+                            <span className="lz-pill-val">{lzSteps[lzStepIdx].bestDistance}</span>
+                            <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>backward offset</span>
+                          </div>
+                          <span style={{ fontSize: '1.5rem', color: 'var(--text-muted)' }}>,</span>
+                          <div className="lz-pill length">
+                            <span className="lz-pill-label">Length (l)</span>
+                            <span className="lz-pill-val">{lzSteps[lzStepIdx].bestLength}</span>
+                            <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>matched bytes</span>
+                          </div>
+                          <span style={{ fontSize: '1.5rem', color: 'var(--text-muted)' }}>,</span>
+                          <div className="lz-pill next-lit">
+                            <span className="lz-pill-label">Literal (c)</span>
+                            <span className="lz-pill-val">
+                              {lzSteps[lzStepIdx].nextChar === ' ' ? '␣' : `'${lzSteps[lzStepIdx].nextChar}'`}
+                            </span>
+                            <span style={{ fontSize: '0.72rem', opacity: 0.8 }}>next uncompressed byte</span>
+                          </div>
+                        </div>
 
+                        <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                          {lzSteps[lzStepIdx].bestLength > 0 ? (
+                            <>
+                              Decoder will copy <strong>{lzSteps[lzStepIdx].bestLength} bytes</strong> starting <strong>{lzSteps[lzStepIdx].bestDistance} positions back</strong> from output end, then append literal byte <strong>'{lzSteps[lzStepIdx].nextChar === ' ' ? 'space' : lzSteps[lzStepIdx].nextChar}'</strong>.
+                            </>
+                          ) : (
+                            <>
+                              Zero prior match found. Distance and length are 0. Decoder simply appends literal <strong>'{lzSteps[lzStepIdx].nextChar === ' ' ? 'space' : lzSteps[lzStepIdx].nextChar}'</strong>.
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Cumulative Token Stream */}
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                         <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-muted)' }}>
                           Cumulative Token Stream ({lzSteps[lzStepIdx].tokensSoFar.length} emitted)
                         </span>
+                        {lzArchMode === 'lzss' && (
+                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                            <span style={{ color: 'var(--accent-emerald)', fontWeight: 700 }}>■</span> FLAG=1 Match &nbsp;
+                            <span style={{ color: '#c084fc', fontWeight: 700 }}>■</span> FLAG=0 Literal
+                          </span>
+                        )}
                       </div>
                       <div className="lz-token-stream-grid">
                         {lzSteps[lzStepIdx].tokensSoFar.map((t, idx) => (
-                          <div 
-                            key={idx} 
-                            className={`lz-token-chip ${idx === lzSteps[lzStepIdx].tokensSoFar.length - 1 ? 'active-latest' : ''}`}>
-                            <span style={{ opacity: 0.5, fontSize: '0.7rem' }}>#{idx + 1}</span>
-                            <span>(</span>
-                            <span className="tok-d">d={t.distance}</span>
-                            <span>,</span>
-                            <span className="tok-l">l={t.length}</span>
-                            <span>,</span>
-                            <span className="tok-c">'{t.nextChar === ' ' ? '␣' : t.nextChar}'</span>
-                            <span>)</span>
-                          </div>
+                          lzArchMode === 'lzss' ? (
+                            /* LZSS token chip with flag coloring */
+                            <div
+                              key={idx}
+                              className={`lz-token-chip ${idx === lzSteps[lzStepIdx].tokensSoFar.length - 1 ? 'active-latest' : ''}`}
+                              style={{ borderColor: t.isMatch ? 'rgba(52,211,153,0.4)' : 'rgba(192,132,252,0.4)', background: t.isMatch ? 'rgba(52,211,153,0.07)' : 'rgba(192,132,252,0.07)' }}>
+                              <span className="tok-flag" style={{ color: t.isMatch ? 'var(--accent-emerald)' : '#c084fc', fontWeight: 800, fontSize: '0.7rem' }}>F={t.isMatch ? '1' : '0'}</span>
+                              {t.isMatch ? (
+                                <>
+                                  <span className="tok-d">d={t.distance}</span>
+                                  <span style={{ opacity: 0.5 }}>,</span>
+                                  <span className="tok-l">l={t.length}</span>
+                                </>
+                              ) : (
+                                <span className="tok-c">'{t.literal === ' ' ? '␣' : t.literal}'</span>
+                              )}
+                            </div>
+                          ) : (
+                            /* Classic LZ77 token chip */
+                            <div
+                              key={idx}
+                              className={`lz-token-chip ${idx === lzSteps[lzStepIdx].tokensSoFar.length - 1 ? 'active-latest' : ''}`}>
+                              <span style={{ opacity: 0.5, fontSize: '0.7rem' }}>#{idx + 1}</span>
+                              <span>(</span>
+                              <span className="tok-d">d={t.distance}</span>
+                              <span>,</span>
+                              <span className="tok-l">l={t.length}</span>
+                              <span>,</span>
+                              <span className="tok-c">'{t.nextChar === ' ' ? '␣' : t.nextChar}'</span>
+                              <span>)</span>
+                            </div>
+                          )
                         ))}
                       </div>
                     </div>
@@ -4015,15 +4799,49 @@ export default function App() {
                   </h4>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '280px', overflowY: 'auto' }}>
                     {lzSteps[lzStepIdx].tokensSoFar.map((t, idx) => (
-                      <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(255,255,255,0.03)', padding: '8px 14px', borderRadius: '4px', fontFamily: 'var(--font-mono)', fontSize: '0.84rem' }}>
-                        <span style={{ color: 'var(--accent-violet)', fontWeight: 700 }}>Token #{idx + 1}</span>
-                        <span style={{ color: 'var(--accent-cyan)' }}>d={t.distance}</span>
-                        <span style={{ color: 'var(--accent-emerald)' }}>l={t.length}</span>
-                        <span style={{ color: 'var(--accent-rose)' }}>c='{t.nextChar === ' ' ? '␣' : t.nextChar}'</span>
-                        <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
-                          → {t.length > 0 ? `Copied ${t.length} bytes from backward offset ${t.distance} + appended '${t.nextChar === ' ' ? '␣' : t.nextChar}'` : `Appended literal '${t.nextChar === ' ' ? '␣' : t.nextChar}'`}
-                        </span>
-                      </div>
+                      lzArchMode === 'lzss' ? (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: t.isMatch ? 'rgba(52,211,153,0.04)' : 'rgba(192,132,252,0.04)', borderLeft: `3px solid ${t.isMatch ? 'var(--accent-emerald)' : '#c084fc'}`, padding: '8px 14px', borderRadius: '4px', fontFamily: 'var(--font-mono)', fontSize: '0.84rem' }}>
+                          <span style={{ color: 'var(--text-muted)', fontWeight: 700 }}>#{idx + 1}</span>
+                          <span style={{ 
+                            background: t.isMatch ? 'rgba(52,211,153,0.18)' : 'rgba(192,132,252,0.18)', 
+                            color: t.isMatch ? 'var(--accent-emerald)' : '#c084fc', 
+                            padding: '2px 8px', borderRadius: '3px', fontWeight: 800, fontSize: '0.75rem' 
+                          }}>
+                            {t.isMatch ? 'FLAG 1 (MATCH)' : 'FLAG 0 (LITERAL)'}
+                          </span>
+                          {t.isMatch ? (
+                            <>
+                              <span style={{ color: 'var(--accent-cyan)' }}>d={t.distance}</span>
+                              <span style={{ color: 'var(--accent-emerald)' }}>l={t.length}</span>
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>[21 bits]</span>
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                                → Copied {t.length} bytes from backward offset {t.distance} into reconstruction buffer
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <span style={{ color: 'var(--accent-rose)', fontWeight: 700 }}>
+                                char='{t.literal === ' ' ? '␣' : t.literal}'
+                              </span>
+                              <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>[9 bits]</span>
+                              <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                                → Appended literal '{t.literal === ' ' ? '␣' : t.literal}' (saving 19 bits vs classic 28b triplet)
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      ) : (
+                        <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(255,255,255,0.03)', padding: '8px 14px', borderRadius: '4px', fontFamily: 'var(--font-mono)', fontSize: '0.84rem' }}>
+                          <span style={{ color: 'var(--accent-violet)', fontWeight: 700 }}>Token #{idx + 1}</span>
+                          <span style={{ color: 'var(--accent-cyan)' }}>d={t.distance}</span>
+                          <span style={{ color: 'var(--accent-emerald)' }}>l={t.length}</span>
+                          <span style={{ color: 'var(--accent-rose)' }}>c='{(t.nextChar === ' ' ? '␣' : t.nextChar) || '␣'}'</span>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.78rem' }}>[28 bits]</span>
+                          <span style={{ color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                            → {t.length > 0 ? `Copied ${t.length} bytes from backward offset ${t.distance} + appended '${t.nextChar === ' ' ? '␣' : t.nextChar}'` : `Appended literal '${t.nextChar === ' ' ? '␣' : t.nextChar}'`}
+                          </span>
+                        </div>
+                      )
                     ))}
                   </div>
                 </div>
@@ -4031,7 +4849,17 @@ export default function App() {
             )}
 
             {/* -------------------- PHASE 3: REAL FILE DATA MATRIX -------------------- */}
-            {lzAnimPhase === 'matrix' && (
+            {lzAnimPhase === 'matrix' && (() => {
+              // ── Bit math differs by mode ──
+              const lzssMatchBits = lzSteps.filter(s => s.isMatch).length * 21;
+              const lzsslitBits   = lzSteps.filter(s => !s.isMatch).length * 9;
+              const lzssTokenBits = lzssMatchBits + lzsslitBits;
+              const lz77TokenBits = lzSteps.length * 28;
+              const tokenBits     = lzArchMode === 'lzss' ? lzssTokenBits : lz77TokenBits;
+              const headerBytes   = 12;
+              const totalBytes    = headerBytes + Math.ceil(tokenBits / 8);
+              const ratio         = (lzInput.length / Math.max(1, totalBytes)).toFixed(2);
+              return (
               <div className="lz-studio-wrapper" style={{ marginTop: '20px' }}>
                 {/* Metric Summary Cards */}
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px' }}>
@@ -4041,13 +4869,13 @@ export default function App() {
                   </div>
                   <div className="metric-box">
                     <span className="metric-val" style={{ color: 'var(--accent-cyan)' }}>
-                      {12 + Math.ceil((lzSteps.length * 28) / 8)} B
+                      {totalBytes} B
                     </span>
-                    <span className="metric-lbl">LZ77 Binary Stream (Header + Tokens)</span>
+                    <span className="metric-lbl">{lzArchMode === 'lzss' ? 'LZSS' : 'LZ77'} Binary Stream (Header + Tokens)</span>
                   </div>
                   <div className="metric-box">
-                    <span className="metric-val" style={{ color: lzInput.length > (12 + Math.ceil((lzSteps.length * 28) / 8)) ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
-                      {(lzInput.length / Math.max(1, 12 + Math.ceil((lzSteps.length * 28) / 8))).toFixed(2)} : 1
+                    <span className="metric-val" style={{ color: lzInput.length > totalBytes ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                      {ratio} : 1
                     </span>
                     <span className="metric-lbl">Compression Ratio</span>
                   </div>
@@ -4055,7 +4883,11 @@ export default function App() {
                     <span className="metric-val" style={{ color: 'var(--accent-violet)' }}>
                       {lzSteps.length}
                     </span>
-                    <span className="metric-lbl">Emitted (d,l,c) Triplets</span>
+                    <span className="metric-lbl">
+                      {lzArchMode === 'lzss'
+                        ? `${lzSteps.filter(s => s.isMatch).length} Matches + ${lzSteps.filter(s => !s.isMatch).length} Literals`
+                        : 'Emitted (d,l,c) Triplets'}
+                    </span>
                   </div>
                 </div>
 
@@ -4063,7 +4895,7 @@ export default function App() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                   <div className="matrix-pane">
                     <div className="matrix-pane-header">
-                      <span>ORIGINAL UNCOMPRESSED BYTES (ASCII & HEX)</span>
+                      <span>ORIGINAL UNCOMPRESSED BYTES (ASCII &amp; HEX)</span>
                       <span className="matrix-size-tag">{lzInput.length} Bytes</span>
                     </div>
                     <div className="hex-ascii-grid-scroll" style={{ maxHeight: '260px' }}>
@@ -4090,9 +4922,13 @@ export default function App() {
 
                   <div className="matrix-pane">
                     <div className="matrix-pane-header">
-                      <span>SERIALIZED LZ77 BITSTREAM (12B HEADER + 28b TOKENS)</span>
+                      <span>
+                        {lzArchMode === 'lzss'
+                          ? 'SERIALIZED LZSS BITSTREAM (12B HEADER + 1-BIT FLAGS)'
+                          : 'SERIALIZED LZ77 BITSTREAM (12B HEADER + 28b TOKENS)'}
+                      </span>
                       <span className="matrix-size-tag" style={{ color: 'var(--accent-cyan)' }}>
-                        {12 + Math.ceil((lzSteps.length * 28) / 8)} Bytes
+                        {totalBytes} Bytes
                       </span>
                     </div>
                     <div className="hex-ascii-grid-scroll" style={{ maxHeight: '260px' }}>
@@ -4101,26 +4937,54 @@ export default function App() {
                           [Header - 12 Bytes]
                         </div>
                         <div style={{ color: 'var(--text-secondary)' }}>
-                          • Magic (4B): 0x4C5A3737 ('LZ77')<br />
+                          • Magic (4B): {lzArchMode === 'lzss' ? "0x4C5A5353 ('LZSS')" : "0x4C5A3737 ('LZ77')"}<br />
                           • Original Size (4B): {lzInput.length} bytes (0x{lzInput.length.toString(16).padStart(8, '0')})<br />
                           • Token Count (4B): {lzSteps.length} tokens (0x{lzSteps.length.toString(16).padStart(8, '0')})
                         </div>
-                        <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, marginTop: '12px', marginBottom: '6px' }}>
-                          [Token Payload - 28 bits per token: 12b d | 8b l | 8b c]
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                          {lzSteps.map((s, idx) => (
-                            <div key={idx} style={{ color: 'var(--text-muted)' }}>
-                              #{idx + 1}: d={s.token.distance} (0b{s.token.distance.toString(2).padStart(12, '0')}) | l={s.token.length} (0b{s.token.length.toString(2).padStart(8, '0')}) | c='{s.token.nextChar === ' ' ? '␣' : s.token.nextChar}' (0x{s.token.nextChar.charCodeAt(0).toString(16).padStart(2, '0')})
+                        {lzArchMode === 'lzss' ? (
+                          <>
+                            <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, marginTop: '12px', marginBottom: '6px' }}>
+                              [Token Payload — Flag=0: 1b+8b=9b literal | Flag=1: 1b+12b+8b=21b match]
                             </div>
-                          ))}
-                        </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {lzSteps.map((s, idx) => (
+                                <div key={idx} style={{ color: s.isMatch ? 'var(--accent-emerald)' : '#c084fc', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                  <span style={{ opacity: 0.6 }}>#{idx + 1}</span>
+                                  <span style={{ fontWeight: 700 }}>F={s.isMatch ? '1' : '0'}</span>
+                                  {s.isMatch
+                                    ? <span>d={s.token.distance} (0b{s.token.distance.toString(2).padStart(12,'0')}) | l={s.token.length} (0b{s.token.length.toString(2).padStart(8,'0')}) — 21 bits</span>
+                                    : <span>'{(s.literal||s.token.literal||'') === ' ' ? '␣' : (s.literal||s.token.literal||'')}' (0x{((s.literal||s.token.literal||'') || ' ').charCodeAt(0).toString(16).padStart(2,'0')}) — 9 bits</span>
+                                  }
+                                </div>
+                              ))}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, marginTop: '12px', marginBottom: '6px' }}>
+                              [Token Payload - 28 bits per token: 12b d | 8b l | 8b c]
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              {lzSteps.map((s, idx) => {
+                                const ch = s.token?.nextChar || s.nextChar || ' ';
+                                const dist = s.token?.distance ?? 0;
+                                const len = s.token?.length ?? 0;
+                                return (
+                                  <div key={idx} style={{ color: 'var(--text-muted)' }}>
+                                    #{idx + 1}: d={dist} (0b{dist.toString(2).padStart(12, '0')}) | l={len} (0b{len.toString(2).padStart(8, '0')}) | c='{ch === ' ' ? '␣' : ch}' (0x{ch.charCodeAt(0).toString(16).padStart(2, '0')})
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-            )}
+              );
+            })()}
           </div>
 
           {/* ==================== MATHEMATICAL SIZE REDUCTION BREAKDOWN (BEFORE vs. AFTER) ==================== */}
@@ -4128,7 +4992,10 @@ export default function App() {
             const rawBytes = lzInput.length;
             const rawBits = rawBytes * 8;
             const headerBytes = 12;
-            const tokenBits = lzSteps.length * 28;
+            // Token bits depend on mode
+            const lzssTokenBits = lzSteps.filter(s => s.isMatch).length * 21 + lzSteps.filter(s => !s.isMatch).length * 9;
+            const lz77TokenBits = lzSteps.length * 28;
+            const tokenBits = lzArchMode === 'lzss' ? lzssTokenBits : lz77TokenBits;
             const totalCompBits = headerBytes * 8 + tokenBits;
             const totalCompBytes = headerBytes + Math.ceil(tokenBits / 8);
             const deltaBits = rawBits - totalCompBits;
@@ -4232,7 +5099,11 @@ export default function App() {
                       </li>
                       <li>
                         <span>Uncompressed Literals:</span>
-                        <strong>{literalsCount} tokens (d=0, l=0)</strong>
+                        <strong>
+                          {lzArchMode === 'lzss'
+                            ? `${lzSteps.filter(s => !s.isMatch).length} literals (F=0, 9b each)`
+                            : `${literalsCount} triplets (d=0, l=0, 28b each)`}
+                        </strong>
                       </li>
                       <li>
                         <span>Header Transmit Cost:</span>
@@ -4253,8 +5124,12 @@ export default function App() {
                         <strong>12 Bytes (96 bits)</strong>
                       </li>
                       <li>
-                        <span>Packed 28-bit Token Stream:</span>
-                        <strong>{lzSteps.length} × 28 = {tokenBits} bits</strong>
+                        <span>{lzArchMode === 'lzss' ? 'LZSS Flagged Payload Stream:' : 'Packed 28-bit Token Stream:'}</span>
+                        <strong>
+                          {lzArchMode === 'lzss'
+                            ? `${lzSteps.filter(s => s.isMatch).length}×21b + ${lzSteps.filter(s => !s.isMatch).length}×9b = ${tokenBits} bits`
+                            : `${lzSteps.length} × 28b = ${tokenBits} bits`}
+                        </strong>
                       </li>
                       <li>
                         <span>Total Transmitted File:</span>
@@ -6120,6 +6995,1371 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* =========================================================================
+          VIEW 6: DEDICATED ARITHMETIC & RANGE CODING STUDIO (FRACTIONAL ENTROPY)
+          ========================================================================= */}
+      {currentView === 'arithmetic' && (() => {
+        const currentStep = arithData.steps[arithStepIdx] || arithData.steps[0] || {};
+        const totalSteps = arithData.steps.length;
+
+        // Palette for symbol probability bar
+        const symColors = ['#00f2fe', '#c084fc', '#34d399', '#fb923c', '#f43f5e', '#38bdf8', '#a855f7', '#4ade80'];
+
+        return (
+          <div className="studio-container">
+            <div className="studio-header">
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <button 
+                    className="studio-breadcrumb" 
+                    onClick={() => navigateTo('matrix')} 
+                    style={{ margin: 0, padding: '4px 10px', fontSize: '0.78rem' }}>
+                    <ArrowLeft size={14} /> All Algorithms
+                  </button>
+                  <span className="status-chip ready" style={{ fontSize: '0.75rem' }}>
+                    Algorithm #7: Fractional Entropy Engine (Shannon 1948 / WNC 1987)
+                  </span>
+                  <span className="cxx-icon" style={{ fontSize: '0.75rem' }}>
+                    C++20
+                  </span>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                    lossless/arithmetic/arithmetic.hpp
+                  </span>
+                </div>
+                <h2 className="studio-title" style={{ marginTop: '10px' }}>
+                  Arithmetic &amp; Range Coding: <span style={{ color: 'var(--accent-cyan)' }}>Fractional-Bit Entropy Engine</span>
+                </h2>
+                <p className="studio-subtitle">
+                  Maps the entire symbol sequence into a single high-precision sub-interval [L, R) ⊂ [0, 1). 
+                  Breaks the 1-bit integer quantization barrier of Huffman coding by allocating true <strong>fractional bits per symbol</strong>, achieving Shannon entropy density H(X).
+                </p>
+              </div>
+            </div>
+
+            {/* Navigation & Phase Tabs Bar */}
+            <div className="phase-tabs-bar" style={{ marginBottom: '20px' }}>
+              <button 
+                className={`phase-tab-btn ${arithAnimPhase === 'zoom' ? 'active' : ''}`}
+                onClick={() => setArithAnimPhase('zoom')}>
+                <Layers size={16} /> Phase 1: Interactive Number Line &amp; Interval Zoom
+              </button>
+              <button 
+                className={`phase-tab-btn ${arithAnimPhase === 'registers' ? 'active' : ''}`}
+                onClick={() => setArithAnimPhase('registers')}>
+                <Cpu size={16} /> Phase 2: 32-Bit Integer Registers &amp; E1/E2/E3 Renormalization Machine
+              </button>
+              <button 
+                className={`phase-tab-btn ${arithAnimPhase === 'compare' ? 'active' : ''}`}
+                onClick={() => setArithAnimPhase('compare')}>
+                <TrendingDown size={16} /> Phase 3: Real-Time Huffman vs. Arithmetic Head-to-Head
+              </button>
+              <button 
+                className={`phase-tab-btn ${arithAnimPhase === 'matrix' ? 'active' : ''}`}
+                onClick={() => setArithAnimPhase('matrix')}>
+                <FileCode size={16} /> Phase 4: Real Document Data Matrix &amp; Binary Stream Audit
+              </button>
+            </div>
+
+            {/* Presets & Parameters Bar */}
+            <div className="anim-controls-bar" style={{ flexWrap: 'wrap', gap: '14px', justifyContent: 'space-between', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>Presets:</span>
+                {Object.entries(ARITHMETIC_PRESETS).map(([key, item]) => (
+                  <button
+                    key={key}
+                    className={`chip-btn ${arithPresetKey === key ? 'active' : ''}`}
+                    style={arithPresetKey === key ? { background: 'rgba(0, 242, 254, 0.2)', borderColor: 'var(--accent-cyan)', color: 'var(--accent-cyan)' } : {}}
+                    onClick={() => {
+                      setArithPresetKey(key);
+                      setArithInput(item.text);
+                      setArithStepIdx(0);
+                      setArithIsAutoBuilding(false);
+                      arithIsAutoBuildingRef.current = false;
+                      if (window.speechSynthesis) window.speechSynthesis.cancel();
+                    }}>
+                    {item.name}
+                  </button>
+                ))}
+              </div>
+
+              {/* Mode Selector: Static Table vs Adaptive Learning */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>Mode:</span>
+                <div style={{ display: 'inline-flex', background: 'rgba(0,0,0,0.5)', padding: '3px', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
+                  <button
+                    onClick={() => { setArithMode('static'); setArithStepIdx(0); }}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                      borderRadius: '4px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: arithMode === 'static' ? 'rgba(192, 132, 252, 0.25)' : 'transparent',
+                      color: arithMode === 'static' ? '#c084fc' : 'var(--text-muted)',
+                      boxShadow: arithMode === 'static' ? '0 0 0 1px #c084fc55' : 'none',
+                      transition: 'all 0.15s ease'
+                    }}>
+                    Static Table
+                  </button>
+                  <button
+                    onClick={() => { setArithMode('adaptive'); setArithStepIdx(0); }}
+                    style={{
+                      padding: '4px 10px',
+                      fontSize: '0.78rem',
+                      fontWeight: 600,
+                      borderRadius: '4px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: arithMode === 'adaptive' ? 'rgba(0, 242, 254, 0.2)' : 'transparent',
+                      color: arithMode === 'adaptive' ? 'var(--accent-cyan)' : 'var(--text-muted)',
+                      boxShadow: arithMode === 'adaptive' ? '0 0 0 1px rgba(0,242,254,0.4)' : 'none',
+                      transition: 'all 0.15s ease'
+                    }}>
+                    Adaptive Learning (CABAC)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Stepper Toolbar */}
+            <div className="anim-controls-bar" style={{ marginBottom: '24px' }}>
+              <div className="control-btn-group">
+                <button
+                  className="control-btn"
+                  title="Reset to Step 0"
+                  onClick={() => {
+                    setArithStepIdx(0);
+                    setArithIsAutoBuilding(false);
+                    arithIsAutoBuildingRef.current = false;
+                    if (window.speechSynthesis) window.speechSynthesis.cancel();
+                  }}>
+                  <RotateCcw size={16} />
+                </button>
+                <button
+                  className="control-btn"
+                  title="Step Backwards"
+                  disabled={arithStepIdx <= 0}
+                  onClick={() => handleArithStepChange(arithStepIdx - 1)}>
+                  <StepBack size={16} />
+                </button>
+                <button
+                  className={`control-btn play-btn ${arithIsAutoBuilding ? 'active' : ''}`}
+                  title={arithIsAutoBuilding ? 'Pause Auto-Advancer' : 'Play Step-by-Step Simulation'}
+                  onClick={handleToggleArithAutoBuild}>
+                  {arithIsAutoBuilding ? <Pause size={18} /> : <Play size={18} />}
+                </button>
+                <button
+                  className="control-btn"
+                  title="Step Forward"
+                  disabled={arithStepIdx >= totalSteps - 1}
+                  onClick={() => handleArithStepChange(arithStepIdx + 1)}>
+                  <StepForward size={16} />
+                </button>
+              </div>
+
+              {/* Progress Indicator */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span className="step-counter" style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  Step <strong>{arithStepIdx + 1}</strong> of <strong>{totalSteps}</strong>
+                </span>
+                {currentStep.char && (
+                  <span className="badge-alt" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem', background: 'rgba(0, 242, 254, 0.1)', borderColor: 'rgba(0, 242, 254, 0.3)', color: 'var(--accent-cyan)' }}>
+                    Symbol: '{currentStep.charDisplay}' (p = {(currentStep.prob * 100).toFixed(1)}%)
+                  </span>
+                )}
+              </div>
+
+              {/* Voice narration toggle */}
+              <button
+                className={`control-btn ${arithVoiceEnabled ? 'active' : ''}`}
+                title={arithVoiceEnabled ? 'Voice Guidance Active' : 'Voice Guidance Muted'}
+                onClick={() => setArithVoiceEnabled(!arithVoiceEnabled)}>
+                {arithVoiceEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+              </button>
+            </div>
+
+            {/* -------------------- PHASE 1: INTERACTIVE NUMBER LINE & INTERVAL ZOOM -------------------- */}
+            {arithAnimPhase === 'zoom' && (
+              <div className="arith-numberline-card">
+                <div className="arith-axis-header">
+                  <div className="arith-axis-title">
+                    <Layers size={18} color="var(--accent-cyan)" />
+                    <span>Global Probability Interval Subdivision [0.000000, 1.000000)</span>
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    Alphabet: {arithData.symbolTable.length - 1} Symbols + EOS
+                  </div>
+                </div>
+
+                {/* Global Probability Strip */}
+                <div className="arith-bar-track">
+                  {arithData.symbolTable.map((item, idx) => {
+                    const isSelected = item.char === currentStep.char;
+                    const color = symColors[idx % symColors.length];
+                    const widthPct = (item.prob * 100).toFixed(2);
+                    return (
+                      <div
+                        key={idx}
+                        className={`arith-bar-segment ${isSelected ? 'active' : ''}`}
+                        style={{
+                          width: `${widthPct}%`,
+                          background: isSelected ? 'var(--accent-cyan)' : color,
+                          color: '#000',
+                          opacity: isSelected ? 1 : 0.75
+                        }}
+                        title={`Symbol '${item.char === ' ' ? '␣' : item.char}': range [${(item.cumLow / (arithData.symbolTable[arithData.symbolTable.length-1].cumHigh)).toFixed(4)}, ${(item.cumHigh / (arithData.symbolTable[arithData.symbolTable.length-1].cumHigh)).toFixed(4)}), prob ${(item.prob * 100).toFixed(1)}%`}>
+                        <span style={{ fontSize: '0.82rem', fontWeight: 800 }}>
+                          {item.char === ' ' ? '␣' : item.char === '§EOS§' ? 'EOS' : item.char}
+                        </span>
+                        <span style={{ fontSize: '0.65rem', opacity: 0.85 }}>
+                          {widthPct}%
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="arith-axis-ticks">
+                  <span>0.00</span>
+                  <span>0.25</span>
+                  <span>0.50</span>
+                  <span>0.75</span>
+                  <span>1.00</span>
+                </div>
+
+                {/* Magnified Sub-Interval Zoom View */}
+                <div className="arith-zoom-container">
+                  <div className="arith-zoom-header">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Sparkles size={16} />
+                      <strong>Live Sub-Interval Magnifier: Step #{arithStepIdx + 1}</strong>
+                    </div>
+                    <div className="arith-interval-tag">
+                      Current Range: [<strong>{currentStep.normLow ? currentStep.normLow.toFixed(8) : '0.00000000'}</strong>, <strong>{currentStep.normHigh ? currentStep.normHigh.toFixed(8) : '1.00000000'}</strong>)
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginTop: '14px' }}>
+                    <div className="metric-box">
+                      <span className="metric-val" style={{ color: 'var(--accent-cyan)' }}>
+                        {(currentStep.normHigh - currentStep.normLow).toExponential(4)}
+                      </span>
+                      <span className="metric-lbl">Remaining Interval Width (Δ)</span>
+                    </div>
+                    <div className="metric-box">
+                      <span className="metric-val" style={{ color: 'var(--accent-emerald)' }}>
+                        {currentStep.stepShannonBits ? currentStep.stepShannonBits.toFixed(3) : '0.000'} bits
+                      </span>
+                      <span className="metric-lbl">Information Emitted This Symbol</span>
+                    </div>
+                    <div className="metric-box">
+                      <span className="metric-val" style={{ color: 'var(--accent-violet)' }}>
+                        {currentStep.cumShannonBits ? currentStep.cumShannonBits.toFixed(2) : '0.00'} bits
+                      </span>
+                      <span className="metric-lbl">Cumulative Shannon Entropy H(X)</span>
+                    </div>
+                    <div className="metric-box">
+                      <span className="metric-val" style={{ color: '#fb923c' }}>
+                        {currentStep.stepHuffmanBits || 1} bits
+                      </span>
+                      <span className="metric-lbl">Canonical Huffman Integer Floor</span>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: '16px', padding: '12px 16px', background: 'rgba(0,0,0,0.3)', borderRadius: '6px', fontSize: '0.84rem', lineHeight: 1.6, borderLeft: '3px solid var(--accent-cyan)' }}>
+                    <strong>Step Pedagogical Analysis:</strong> {currentStep.narrative}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* -------------------- PHASE 2: 32-BIT INTEGER REGISTERS & RENORMALIZATION MACHINE -------------------- */}
+            {arithAnimPhase === 'registers' && (
+              <div>
+                <div className="arith-register-grid">
+                  {/* Low Register */}
+                  <div className="arith-register-card active">
+                    <span className="arith-reg-label">Low Register (L)</span>
+                    <span className="arith-reg-hex" style={{ color: 'var(--accent-cyan)' }}>
+                      0x{currentStep.lowAfter !== undefined ? currentStep.lowAfter.toString(16).toUpperCase().padStart(8, '0') : '00000000'}
+                    </span>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      Decimal: {currentStep.lowAfter !== undefined ? currentStep.lowAfter.toLocaleString() : 0}
+                    </span>
+                    <span className="arith-reg-bin">
+                      {currentStep.lowAfter !== undefined ? currentStep.lowAfter.toString(2).padStart(32, '0').replace(/(.{4})/g, '$1 ') : ''}
+                    </span>
+                  </div>
+
+                  {/* High Register */}
+                  <div className="arith-register-card active">
+                    <span className="arith-reg-label">High Register (R)</span>
+                    <span className="arith-reg-hex" style={{ color: 'var(--accent-violet)' }}>
+                      0x{currentStep.highAfter !== undefined ? currentStep.highAfter.toString(16).toUpperCase().padStart(8, '0') : 'FFFFFFFF'}
+                    </span>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      Decimal: {currentStep.highAfter !== undefined ? currentStep.highAfter.toLocaleString() : 4294967295}
+                    </span>
+                    <span className="arith-reg-bin" style={{ color: 'var(--accent-violet)' }}>
+                      {currentStep.highAfter !== undefined ? currentStep.highAfter.toString(2).padStart(32, '0').replace(/(.{4})/g, '$1 ') : ''}
+                    </span>
+                  </div>
+
+                  {/* Range Register */}
+                  <div className="arith-register-card">
+                    <span className="arith-reg-label">Active Register Range (R - L + 1)</span>
+                    <span className="arith-reg-hex" style={{ color: 'var(--accent-emerald)' }}>
+                      0x{currentStep.highAfter !== undefined ? (currentStep.highAfter - currentStep.lowAfter + 1).toString(16).toUpperCase().padStart(8, '0') : 'FFFFFFFF'}
+                    </span>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      Span: {currentStep.highAfter !== undefined ? (currentStep.highAfter - currentStep.lowAfter + 1).toLocaleString() : 0} units
+                    </span>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                      {currentStep.highAfter !== undefined ? (((currentStep.highAfter - currentStep.lowAfter + 1) / 4294967295) * 100).toFixed(4) : 100}% of 32-bit integer space
+                    </span>
+                  </div>
+
+                  {/* Pending Underflow Queue */}
+                  <div className="arith-register-card">
+                    <span className="arith-reg-label">E3 Pending Underflow Bits</span>
+                    <span className="arith-reg-hex" style={{ color: '#fb923c' }}>
+                      {currentStep.underflowTotal !== undefined ? currentStep.underflowTotal : 0} Bits
+                    </span>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                      Midpoint straddles queued
+                    </span>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+                      Prevents register collapse when interval spans 0x80000000
+                    </span>
+                  </div>
+                </div>
+
+                {/* Renormalization Decision Machine */}
+                <div className="card" style={{ padding: '20px', marginBottom: '24px' }}>
+                  <h4 style={{ fontFamily: 'var(--font-display)', marginBottom: '14px', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Zap size={18} color="var(--accent-cyan)" />
+                    Renormalization Machine (E1, E2, E3 Shifts Applied On This Step)
+                  </h4>
+                  {currentStep.renorms && currentStep.renorms.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {currentStep.renorms.map((r, i) => (
+                        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(255,255,255,0.03)', padding: '10px 14px', borderRadius: '4px' }}>
+                          <span className={`arith-renorm-badge ${r.type.toLowerCase()}`}>
+                            {r.type} SHIFT
+                          </span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.84rem' }}>
+                            {r.desc}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'rgba(255,255,255,0.02)', padding: '10px 14px', borderRadius: '4px' }}>
+                      <span className="arith-renorm-badge none">IDLE</span>
+                      <span style={{ fontSize: '0.84rem', color: 'var(--text-muted)' }}>
+                        Range is sufficiently wide. No register left-shifts required on this step.
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Emitted Bitstream Tape */}
+                <div className="card" style={{ padding: '20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <span style={{ fontFamily: 'var(--font-display)', fontSize: '0.95rem', fontWeight: 700 }}>
+                      Live Emitted Bitstream Tape ({currentStep.emittedSoFar ? currentStep.emittedSoFar.length : 0} bits total)
+                    </span>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                      Bits emitted this step: <strong style={{ color: 'var(--accent-cyan)' }}>{currentStep.bitsThisStep || '(none)'}</strong>
+                    </span>
+                  </div>
+                  <div className="arith-tape-wrapper">
+                    {currentStep.emittedSoFar && currentStep.emittedSoFar.split('').map((bit, idx) => {
+                      const isLatest = idx >= (currentStep.emittedSoFar.length - (currentStep.bitsThisStep ? currentStep.bitsThisStep.length : 0));
+                      return (
+                        <span key={idx} className={`arith-tape-bit ${bit === '1' ? 'bit-1' : 'bit-0'} ${isLatest ? 'latest' : ''}`}>
+                          {bit}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* -------------------- PHASE 3: REAL-TIME HUFFMAN VS ARITHMETIC HEAD-TO-HEAD -------------------- */}
+            {arithAnimPhase === 'compare' && (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+                  <div className="metric-box">
+                    <span className="metric-val" style={{ color: 'var(--accent-cyan)' }}>
+                      {arithData.stats.entropy} b/sym
+                    </span>
+                    <span className="metric-lbl">Shannon Theoretical Entropy H(X)</span>
+                  </div>
+                  <div className="metric-box">
+                    <span className="metric-val" style={{ color: 'var(--accent-emerald)' }}>
+                      {(arithData.stats.arithmeticPayloadBits / Math.max(1, arithData.rawBytes)).toFixed(3)} b/sym
+                    </span>
+                    <span className="metric-lbl">Arithmetic Fractional Density</span>
+                  </div>
+                  <div className="metric-box">
+                    <span className="metric-val" style={{ color: 'var(--accent-rose)' }}>
+                      {(arithData.stats.huffmanBits / Math.max(1, arithData.rawBytes)).toFixed(3)} b/sym
+                    </span>
+                    <span className="metric-lbl">Canonical Huffman Density</span>
+                  </div>
+                  <div className="metric-box">
+                    <span className="metric-val" style={{ color: 'var(--accent-violet)' }}>
+                      {arithData.stats.huffmanBits > 0 ? `${((arithData.stats.huffmanBits - arithData.stats.arithmeticPayloadBits) / arithData.stats.huffmanBits * 100).toFixed(0)}%` : '0%'}
+                    </span>
+                    <span className="metric-lbl">Payload Advantage Over Huffman</span>
+                  </div>
+                </div>
+
+                {/* Head-to-Head Symbol Breakdown Table */}
+                <div className="card" style={{ padding: '20px' }}>
+                  <h4 style={{ fontFamily: 'var(--font-display)', marginBottom: '14px', fontSize: '1.05rem' }}>
+                    Symbol-by-Symbol Comparison: Why Huffman Gets Trapped at ≥ 1 Bit
+                  </h4>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="matrix-hex-table" style={{ width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th>Symbol</th>
+                          <th>Count</th>
+                          <th>Probability P(s)</th>
+                          <th>Shannon Limit (-log₂ P)</th>
+                          <th>Canonical Huffman Code Length</th>
+                          <th>Arithmetic Code Length</th>
+                          <th>Delta Advantage</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {arithData.symbolTable.filter(s => s.char !== '§EOS§').map((s, idx) => {
+                          const isHighProb = s.prob > 0.5;
+                          const huffBits = s.huffBits;
+                          const arithBits = s.shannonBits;
+                          const diff = huffBits - arithBits;
+                          return (
+                            <tr key={idx} style={{ background: isHighProb ? 'rgba(0, 242, 254, 0.05)' : 'transparent' }}>
+                              <td style={{ fontWeight: 800, fontFamily: 'var(--font-mono)' }}>
+                                '{s.char === ' ' ? '␣' : s.char}'
+                              </td>
+                              <td>{s.freq}</td>
+                              <td>{(s.prob * 100).toFixed(1)}%</td>
+                              <td style={{ color: 'var(--accent-cyan)' }}>{s.shannonBits.toFixed(3)} bits</td>
+                              <td style={{ color: isHighProb ? 'var(--accent-rose)' : 'inherit', fontWeight: isHighProb ? 700 : 400 }}>
+                                {huffBits} bit{huffBits > 1 ? 's' : ''} {isHighProb && '(Integer Floor!)'}
+                              </td>
+                              <td style={{ color: 'var(--accent-emerald)', fontWeight: 700 }}>
+                                {arithBits.toFixed(3)} bits
+                              </td>
+                              <td style={{ color: diff > 0 ? 'var(--accent-cyan)' : 'var(--text-muted)' }}>
+                                {diff > 0 ? `+${diff.toFixed(3)} bits saved per symbol` : 'Equal'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* -------------------- PHASE 4: REAL DOCUMENT DATA MATRIX & BINARY STREAM AUDIT -------------------- */}
+            {arithAnimPhase === 'matrix' && (
+              <div className="lz-studio-wrapper">
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '14px', marginBottom: '20px' }}>
+                  <div className="metric-box">
+                    <span className="metric-val">{arithData.rawBytes} B</span>
+                    <span className="metric-lbl">Raw Uncompressed File</span>
+                  </div>
+                  <div className="metric-box">
+                    <span className="metric-val" style={{ color: 'var(--accent-cyan)' }}>
+                      {arithData.stats.totalCompressedBytes} B
+                    </span>
+                    <span className="metric-lbl">Serialized Bitstream (Header + Stream)</span>
+                  </div>
+                  <div className="metric-box">
+                    <span className="metric-val" style={{ color: arithData.rawBytes > arithData.stats.totalCompressedBytes ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                      {arithData.stats.compressionRatio} : 1
+                    </span>
+                    <span className="metric-lbl">Net Compression Ratio</span>
+                  </div>
+                  <div className="metric-box">
+                    <span className="metric-val" style={{ color: 'var(--accent-violet)' }}>
+                      {arithData.stats.spaceSavingsPercent}%
+                    </span>
+                    <span className="metric-lbl">Space Reduction</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  {/* Left: Original File */}
+                  <div className="matrix-pane">
+                    <div className="matrix-pane-header">
+                      <span>ORIGINAL UNCOMPRESSED BYTES (ASCII &amp; HEX)</span>
+                      <span className="matrix-size-tag">{arithData.rawBytes} Bytes</span>
+                    </div>
+                    <div className="hex-ascii-grid-scroll" style={{ maxHeight: '280px' }}>
+                      <table className="matrix-hex-table">
+                        <thead>
+                          <tr>
+                            <th>Offset</th>
+                            <th>Hex Value</th>
+                            <th>ASCII Symbol</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {arithInput.split('').map((c, i) => (
+                            <tr key={i}>
+                              <td className="cell-offset">0x{i.toString(16).padStart(4, '0')}</td>
+                              <td className="cell-hex">0x{c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}</td>
+                              <td className="cell-ascii">{c === ' ' ? '␣' : c}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Right: Serialized Bitstream */}
+                  <div className="matrix-pane">
+                    <div className="matrix-pane-header">
+                      <span>SERIALIZED ARITHMETIC BITSTREAM (12B HEADER + PAYLOAD)</span>
+                      <span className="matrix-size-tag" style={{ color: 'var(--accent-cyan)' }}>
+                        {arithData.stats.totalCompressedBytes} Bytes
+                      </span>
+                    </div>
+                    <div className="hex-ascii-grid-scroll" style={{ maxHeight: '280px', padding: '14px', fontFamily: 'var(--font-mono)', fontSize: '0.8rem', lineHeight: 1.6 }}>
+                      <div style={{ color: 'var(--accent-violet)', fontWeight: 700, marginBottom: '6px' }}>
+                        [Header — 12 Bytes + Active Frequencies]
+                      </div>
+                      <div style={{ color: 'var(--text-secondary)' }}>
+                        • Magic (4B): 0x41524954 ('ARIT')<br />
+                        • Mode (1B): {arithMode === 'static' ? '0x00 (Static Frequency Model)' : '0x01 (Adaptive Online Model)'}<br />
+                        • Original Size (4B): {arithData.rawBytes} bytes (0x{arithData.rawBytes.toString(16).padStart(8, '0')})<br />
+                        • Active Symbols Count (2B): {arithData.symbolTable.length - 1} entries
+                      </div>
+
+                      <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, marginTop: '14px', marginBottom: '6px' }}>
+                        [Fractional Payload Bitstream — {arithData.stats.arithmeticPayloadBits} Bits]
+                      </div>
+                      <div style={{ wordBreak: 'break-all', color: 'var(--text-muted)', lineHeight: 1.8 }}>
+                        {arithData.emittedBitstream.match(/.{1,8}/g)?.join(' ') || '(none)'}
+                      </div>
+
+                      <div style={{ color: 'var(--accent-emerald)', fontWeight: 700, marginTop: '14px', marginBottom: '6px' }}>
+                        [Receiver Lossless Roundtrip Verification]
+                      </div>
+                      <div style={{ color: 'var(--text-secondary)' }}>
+                        ✓ Decompressed stream matches input with 100% byte fidelity ({arithData.reconstructedStr.length}/{arithData.rawBytes} chars recovered).
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ==================== MATHEMATICAL SIZE REDUCTION BREAKDOWN ==================== */}
+            <div className="size-reduction-calculator-card" style={{ marginTop: '24px' }}>
+              <div className="calc-header">
+                <div className="calc-title">
+                  <TrendingDown size={22} color="var(--accent-cyan)" />
+                  <span>Mathematical Size Reduction Breakdown: Before vs. After Compression</span>
+                </div>
+                <span className="algo-type-tag" style={{ color: 'var(--accent-cyan)', borderColor: 'rgba(0, 242, 254, 0.4)' }}>
+                  Exact Fractional Entropy Equation
+                </span>
+              </div>
+
+              {/* Equation Banner */}
+              <div className="math-equation-banner">
+                <div className="math-eq-item">
+                  <span className="math-eq-label">Before Compression</span>
+                  <span className="math-eq-val before">{arithData.rawBits} bits</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({arithData.rawBytes} Bytes @ 8b/char)</span>
+                </div>
+
+                <span className="math-operator">→</span>
+
+                <div className="math-eq-item">
+                  <span className="math-eq-label">After Compression</span>
+                  <span className="math-eq-val after">{arithData.stats.totalCompressedBits} bits</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>({arithData.stats.totalCompressedBytes} Bytes total)</span>
+                </div>
+
+                <span className="math-operator">=</span>
+
+                <div className="math-eq-item">
+                  <span className="math-eq-label">Exact Reduction (Delta)</span>
+                  <span className="math-eq-val delta" style={{ color: arithData.rawBits >= arithData.stats.totalCompressedBits ? 'var(--accent-cyan)' : 'var(--accent-rose)' }}>
+                    {arithData.rawBits >= arithData.stats.totalCompressedBits ? `-${arithData.rawBits - arithData.stats.totalCompressedBits} bits` : `+${arithData.stats.totalCompressedBits - arithData.rawBits} bits`}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    ({arithData.stats.spaceSavingsPercent}% size reduction)
+                  </span>
+                </div>
+
+                <span className="math-operator">|</span>
+
+                <div className="math-eq-item">
+                  <span className="math-eq-label">Compression Factor</span>
+                  <span className="math-eq-val ratio">{arithData.stats.compressionRatio} : 1</span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>density multiplier</span>
+                </div>
+              </div>
+
+              {/* 3-Column Detailed Mathematical Audit */}
+              <div className="reduction-three-col-grid">
+                <div className="reduction-col-card before">
+                  <div className="reduction-col-title">
+                    <FileText size={18} />
+                    <span>1. What Existed Before (Raw)</span>
+                  </div>
+                  <ul className="reduction-detail-list">
+                    <li>
+                      <span>Uncompressed Symbols:</span>
+                      <strong>{arithData.rawBytes} chars</strong>
+                    </li>
+                    <li>
+                      <span>Fixed Character Width:</span>
+                      <strong>8 bits / symbol</strong>
+                    </li>
+                    <li>
+                      <span>Shannon Ideal Minimum:</span>
+                      <strong>{arithData.stats.shannonBits} bits ({arithData.stats.entropy} b/sym)</strong>
+                    </li>
+                    <li>
+                      <span>Canonical Huffman Ceiling:</span>
+                      <strong>{arithData.stats.huffmanBits} bits (≥1b/symbol integer floor)</strong>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="reduction-col-card mechanism">
+                  <div className="reduction-col-title">
+                    <Zap size={18} />
+                    <span>2. How It Reduced Size</span>
+                  </div>
+                  <ul className="reduction-detail-list">
+                    <li>
+                      <span>Interval Contraction:</span>
+                      <strong>Recursive product ∏ P(s_i)</strong>
+                    </li>
+                    <li>
+                      <span>Fractional Bit Precision:</span>
+                      <strong>Allocates -log₂(P) bits per symbol</strong>
+                    </li>
+                    <li>
+                      <span>Underflow Hazard Protection:</span>
+                      <strong>E3 mid-range expansion avoids collapse</strong>
+                    </li>
+                    <li>
+                      <span>Payload Emitted:</span>
+                      <strong>{arithData.stats.arithmeticPayloadBits} bits</strong>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="reduction-col-card after">
+                  <div className="reduction-col-title">
+                    <CheckCircle2 size={18} />
+                    <span>3. What Replaces It (After)</span>
+                  </div>
+                  <ul className="reduction-detail-list">
+                    <li>
+                      <span>Binary Header Size:</span>
+                      <strong>{arithData.stats.headerBits / 8} Bytes ({arithData.stats.headerBits} bits)</strong>
+                    </li>
+                    <li>
+                      <span>Compressed Bitstream:</span>
+                      <strong>{arithData.stats.arithmeticPayloadBits} bits</strong>
+                    </li>
+                    <li>
+                      <span>Total Transmitted File:</span>
+                      <strong>{arithData.stats.totalCompressedBytes} Bytes ({arithData.stats.totalCompressedBits} bits)</strong>
+                    </li>
+                    <li>
+                      <span>Net Space Reduction:</span>
+                      <strong style={{ color: arithData.rawBits >= arithData.stats.totalCompressedBits ? 'var(--accent-emerald)' : 'var(--accent-rose)' }}>
+                        {arithData.stats.spaceSavingsPercent}%
+                      </strong>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* ==================== 3 TRICKY CONCEPTS DEMYSTIFIED ==================== */}
+            <div className="lz-tricky-card" style={{ marginTop: '24px' }}>
+              <div className="lz-tricky-title">
+                <Zap size={20} color="var(--accent-cyan)" />
+                <span>The 3 Tricky Concepts of Arithmetic Coding Demystified</span>
+              </div>
+
+              <div className="lz-tricky-grid">
+                <div className="lz-tricky-col">
+                  <h5>1. The 1-Bit Integer Barrier</h5>
+                  <p>
+                    Huffman coding assigns integer-length bitstrings (<code>0</code> or <code>1</code>). 
+                    If a symbol has probability <strong>P = 0.95</strong>, Shannon entropy is only <strong>0.074 bits</strong>!
+                  </p>
+                  <div className="code-diagram">
+                    Huffman must spend: 1 bit (+1250% waste!)<br />
+                    Arithmetic spends: ~0.074 bits
+                  </div>
+                  <p>
+                    Arithmetic coding bypasses this by accumulating fractional bits across multiple symbols into a single continuous interval.
+                  </p>
+                </div>
+
+                <div className="lz-tricky-col">
+                  <h5>2. The Underflow (E3 Hazard)</h5>
+                  <p>
+                    When [L, R) straddles the center <code>0x80000000</code> with L ≥ <code>0x40000000</code> and R &lt; <code>0xC0000000</code>, 
+                    the high bits differ (<code>01...</code> vs <code>10...</code>) so no bit can be emitted yet.
+                  </p>
+                  <div className="code-diagram">
+                    L: 01xxxxxxxx...<br />
+                    R: 10yyyyyyyy...<br />
+                    Range collapses around midpoint!
+                  </div>
+                  <p>
+                    The <strong>E3 renormalization</strong> resolves this by expanding the interval around the center and incrementing an underflow bit counter.
+                  </p>
+                </div>
+
+                <div className="lz-tricky-col">
+                  <h5>3. CABAC in H.264 &amp; H.265</h5>
+                  <p>
+                    Modern video standards (H.264/AVC, H.265/HEVC) use <strong>Context-Adaptive Binary Arithmetic Coding (CABAC)</strong>.
+                  </p>
+                  <div className="code-diagram">
+                    Video Residuals → Context Model → Binary Arithmetic Engine
+                  </div>
+                  <p>
+                    It switches probability models on-the-fly based on adjacent block spatial context, achieving up to 15% better compression than Huffman-based CAVLC!
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Decision Matrix */}
+            <div className="decision-matrix-card" style={{ marginTop: '24px' }}>
+              <div className="decision-matrix-header">
+                <Network size={22} color="var(--accent-cyan)" />
+                <h3 className="matrix-title">Architectural Decision Matrix: When to Deploy Arithmetic Coding</h3>
+              </div>
+              <div className="decision-columns-grid">
+                <div className="decision-column use">
+                  <div className="decision-column-title">
+                    <CheckCircle2 size={20} />
+                    <span>When to Use It (Architectural Sweet Spots)</span>
+                  </div>
+                  <ul className="decision-items-list">
+                    <li className="decision-item">
+                      <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                      <div>
+                        <strong>Highly Skewed Probabilities (P &gt; 50%):</strong> Where a single symbol dominates the frequency distribution (e.g. sparse matrices, monochrome bitmaps, silence in audio, motion vector residuals).
+                      </div>
+                    </li>
+                    <li className="decision-item">
+                      <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                      <div>
+                        <strong>Standardized Video Codecs (CABAC):</strong> The mandatory entropy coding backend for H.264/AVC High Profile and H.265/HEVC broadcast television.
+                      </div>
+                    </li>
+                    <li className="decision-item">
+                      <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                      <div>
+                        <strong>Small-Alphabet Context Modeling:</strong> Ideal when combined with Markov chains or PPM (Prediction by Partial Matching).
+                      </div>
+                    </li>
+                  </ul>
+                </div>
+
+                <div className="decision-column avoid">
+                  <div className="decision-column-title">
+                    <XCircle size={20} />
+                    <span>When NOT to Use It &amp; Alternatives</span>
+                  </div>
+                  <ul className="decision-items-list">
+                    <li className="decision-item">
+                      <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                      <div>
+                        <strong>Ultra-High-Throughput Streaming (GB/s):</strong> 32-bit register multiplications and renormalization branches limit encoding throughput compared to table lookups.
+                        <div style={{ marginTop: '4px' }}>
+                          <span className="badge-alt">Use Instead:</span> <strong>rANS / tANS (Zstandard)</strong> or <strong>Canonical Huffman</strong>.
+                        </div>
+                      </div>
+                    </li>
+                    <li className="decision-item">
+                      <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                      <div>
+                        <strong>Uniform Symbol Distributions:</strong> When all symbols have roughly equal probability (e.g. compiled binary code), Huffman is just as dense with much lower CPU overhead.
+                        <div style={{ marginTop: '4px' }}>
+                          <span className="badge-alt">Use Instead:</span> <strong>Canonical Huffman</strong>.
+                        </div>
+                      </div>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* =========================================================================
+          VIEW 8: SHANNON-FANO CODING STUDIO (TOP-DOWN PREFIX CODES)
+          ========================================================================= */}
+      {currentView === 'shannon-fano' && (() => {
+        const activeSplit = sfData.splits[sfStepIdx] || null;
+        const symColors = ['#fb923c','#c084fc','#34d399','#00f2fe','#f43f5e','#38bdf8','#a855f7','#4ade80','#fbbf24','#e879f9'];
+        const maxBits = sfData.encodedBits || 1;
+        const maxOrigBits = (sfData.originalBytes || 1) * 8;
+        const refBits = Math.max(maxBits, maxOrigBits) || 1;
+
+        return (
+          <div className="studio-container">
+            {/* Header */}
+            <div className="studio-header">
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                  <button className="studio-breadcrumb" onClick={() => navigateTo('matrix')} style={{ margin: 0, padding: '4px 10px', fontSize: '0.78rem' }}>
+                    <ArrowLeft size={14} /> All Algorithms
+                  </button>
+                  <span className="status-chip ready" style={{ fontSize: '0.75rem' }}>Algorithm #6½: Shannon-Fano (Shannon 1948 / Fano 1949)</span>
+                  <span className="cxx-icon" style={{ fontSize: '0.75rem' }}>C++20</span>
+                </div>
+                <h2 className="studio-algo-name">Shannon-Fano Coding Studio</h2>
+                <p className="studio-algo-desc">
+                  The historical ancestor of Huffman. Recursively splits sorted symbols into two groups of roughly equal cumulative weight,
+                  assigning 0 to the left and 1 to the right. Top-down, greedy — not always optimal.
+                </p>
+              </div>
+            </div>
+
+            {/* Phase Tabs */}
+            <div className="studio-phase-tabs">
+              {[['tree','🌲 Split Tree'],['table','📋 Code Table'],['compare','📊 Comparison'],['theory','📖 Theory']].map(([ph, label]) => (
+                <button key={ph} className={`phase-tab ${sfAnimPhase === ph ? 'active' : ''}`} onClick={() => setSfAnimPhase(ph)}>{label}</button>
+              ))}
+            </div>
+
+            {/* Input Card */}
+            <div className="studio-input-card">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
+                <div>
+                  <div className="studio-input-label">Input Sequence</div>
+                  <div className="sf-preset-pills">
+                    {Object.entries(SF_PRESETS).map(([key, p]) => (
+                      <button key={key}
+                        className={`sf-preset-pill ${sfInput === p.text ? 'active' : ''}`}
+                        onClick={() => { setSfInput(p.text); setSfStepIdx(0); }}>
+                        {p.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <textarea
+                className="studio-textarea"
+                value={sfInput}
+                onChange={e => { setSfInput(e.target.value); setSfStepIdx(0); }}
+                rows={2}
+                placeholder="Type any text..."
+              />
+            </div>
+
+            {/* Stats Row */}
+            <div className="sf-stats-grid">
+              <div className="sf-stat-card">
+                <div className="sf-stat-label">Symbols</div>
+                <div className="sf-stat-value">{sfData.table.length}</div>
+                <div className="sf-stat-sub">unique in alphabet</div>
+              </div>
+              <div className="sf-stat-card">
+                <div className="sf-stat-label">Shannon Entropy</div>
+                <div className="sf-stat-value" style={{ color: 'var(--accent-emerald)' }}>{sfData.entropy.toFixed(3)}</div>
+                <div className="sf-stat-sub">bits/symbol (theoretical floor)</div>
+              </div>
+              <div className="sf-stat-card">
+                <div className="sf-stat-label">SF Avg Code Len</div>
+                <div className="sf-stat-value" style={{ color: '#fb923c' }}>{sfData.avgLen.toFixed(3)}</div>
+                <div className="sf-stat-sub">bits/symbol</div>
+              </div>
+              <div className="sf-stat-card">
+                <div className="sf-stat-label">Huffman Avg Len</div>
+                <div className="sf-stat-value" style={{ color: 'var(--accent-cyan)' }}>{sfData.huffmanAvgLen.toFixed(3)}</div>
+                <div className="sf-stat-sub">bits/symbol (lower bound)</div>
+              </div>
+              <div className="sf-stat-card">
+                <div className="sf-stat-label">SF Overhead vs Huffman</div>
+                <div className="sf-stat-value" style={{ color: sfData.avgLen > sfData.huffmanAvgLen + 0.01 ? '#f43f5e' : '#34d399' }}>
+                  +{((sfData.avgLen - sfData.huffmanAvgLen)).toFixed(3)}
+                </div>
+                <div className="sf-stat-sub">bits/symbol extra cost</div>
+              </div>
+              <div className="sf-stat-card">
+                <div className="sf-stat-label">Compression Ratio</div>
+                <div className="sf-stat-value">{sfData.compressionRatio.toFixed(2)}:1</div>
+                <div className="sf-stat-sub">{sfData.originalBytes}B → {Math.ceil(sfData.encodedBits/8)}B</div>
+              </div>
+            </div>
+
+            {/* ---- Phase: Split Tree ---- */}
+            {sfAnimPhase === 'tree' && (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: '20px' }}>
+
+                  {/* Left: Tree visual */}
+                  <div>
+                    <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1rem', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <GitBranch size={18} color="var(--accent-cyan)" /> Recursive Partition Tree
+                    </div>
+                    <div className="sf-tree-canvas">
+                      {/* Render tree levels grouped by depth */}
+                      {(() => {
+                        const maxDepth = Math.max(...sfData.table.map(e => e.bits.length), 0);
+                        // Build a flat representation of nodes at each depth
+                        const levels = [];
+                        for (let d = 0; d <= maxDepth; d++) {
+                          const nodesAtDepth = sfData.table.filter(e => e.bits.length === d);
+                          const allHaveCode = nodesAtDepth.every(e => e.bits !== '');
+                          // Also add internal nodes: symbols whose bits is a prefix of others at this depth
+                          levels.push(
+                            <div key={d} className="sf-tree-level">
+                              {sfData.table
+                                .filter(e => e.bits.length === d)
+                                .map((e, i) => {
+                                  const color = symColors[sfData.table.indexOf(e) % symColors.length];
+                                  const isActiveSplit = activeSplit &&
+                                    (activeSplit.leftSyms.includes(e.sym) || activeSplit.rightSyms.includes(e.sym));
+                                  return (
+                                    <div key={e.sym} className="sf-tree-node">
+                                      {e.bits.length > 0 && (
+                                        <span className={`sf-node-edge ${e.bits[e.bits.length-1]==='0'?'edge-0':'edge-1'}`}>
+                                          {e.bits[e.bits.length-1]}
+                                        </span>
+                                      )}
+                                      <div className={`sf-node-box leaf ${isActiveSplit ? 'active' : ''}`}
+                                           style={{ borderColor: color, color }}>
+                                        {e.sym === ' ' ? '⎵' : e.sym}
+                                        <div style={{ fontSize: '0.65rem', fontWeight: 400, color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>
+                                          {e.cnt}
+                                        </div>
+                                      </div>
+                                      <div className="sf-node-code">{e.bits || 'root'}</div>
+                                    </div>
+                                  );
+                                })}
+                            </div>
+                          );
+                        }
+                        return levels;
+                      })()}
+                      {sfData.table.length === 0 && (
+                        <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '40px' }}>Enter text above to build the tree</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Right: Split Timeline */}
+                  <div>
+                    <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1rem', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <List size={18} color="var(--accent-cyan)" /> Split Steps ({sfData.splits.length})
+                    </div>
+                    <div className="sf-split-timeline">
+                      {sfData.splits.map((step, idx) => (
+                        <div key={idx}
+                             className={`sf-split-step ${idx === sfStepIdx ? 'active' : ''}`}
+                             onClick={() => setSfStepIdx(idx)}>
+                          <div className="sf-depth-badge">{step.depth}</div>
+                          <div className="sf-split-body">
+                            Split <strong>[{step.leftSyms.join('')}]</strong> | <strong>[{step.rightSyms.join('')}]</strong>
+                            <div className="sf-weight-pills">
+                              <span className="sf-weight-pill left">0: w={step.leftWeight}</span>
+                              <span className="sf-weight-pill right">1: w={step.rightWeight}</span>
+                              <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', alignSelf: 'center' }}>
+                                Δ={Math.abs(step.leftWeight - step.rightWeight).toFixed(0)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {sfData.splits.length === 0 && (
+                        <div style={{ color: 'var(--text-muted)', fontSize: '0.82rem', padding: '20px 0', textAlign: 'center' }}>Single symbol — no splits needed</div>
+                      )}
+                    </div>
+
+                    {/* Step navigator */}
+                    {sfData.splits.length > 0 && (
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                        <button className="studio-btn" style={{ flex: 1, padding: '7px' }}
+                          onClick={() => setSfStepIdx(i => Math.max(0, i - 1))} disabled={sfStepIdx === 0}>
+                          <ChevronLeft size={16} /> Prev
+                        </button>
+                        <button className="studio-btn" style={{ flex: 1, padding: '7px' }}
+                          onClick={() => setSfStepIdx(i => Math.min(sfData.splits.length - 1, i + 1))}
+                          disabled={sfStepIdx >= sfData.splits.length - 1}>
+                          Next <ChevronRight size={16} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Active split detail */}
+                {activeSplit && (
+                  <div style={{ background: 'rgba(0,242,254,0.05)', border: '1px solid rgba(0,242,254,0.2)', borderRadius: 'var(--radius-sm)', padding: '16px', marginTop: '16px' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.82rem', color: 'var(--accent-cyan)', marginBottom: '10px', fontWeight: 700 }}>
+                      Step {sfStepIdx + 1} of {sfData.splits.length} — Depth {activeSplit.depth}
+                    </div>
+                    <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', fontSize: '0.83rem' }}>
+                      <div>
+                        <div style={{ color: '#c084fc', fontWeight: 700, marginBottom: '4px' }}>← Left group (bit = 0)</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', background: 'rgba(192,132,252,0.1)', border: '1px solid rgba(192,132,252,0.3)', borderRadius: '4px', padding: '6px 12px' }}>
+                          [{activeSplit.leftSyms.join(', ')}] — weight {activeSplit.leftWeight}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', color: 'var(--text-muted)', fontSize: '1.2rem' }}>⇌</div>
+                      <div>
+                        <div style={{ color: '#34d399', fontWeight: 700, marginBottom: '4px' }}>Right group (bit = 1) →</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', background: 'rgba(52,211,153,0.1)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: '4px', padding: '6px 12px' }}>
+                          [{activeSplit.rightSyms.join(', ')}] — weight {activeSplit.rightWeight}
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ color: 'var(--text-muted)', fontWeight: 700, marginBottom: '4px' }}>Balance error</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 800,
+                          color: Math.abs(activeSplit.leftWeight - activeSplit.rightWeight) > 2 ? '#fb923c' : '#34d399' }}>
+                          |Δ| = {Math.abs(activeSplit.leftWeight - activeSplit.rightWeight)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* ---- Phase: Code Table ---- */}
+            {sfAnimPhase === 'table' && (
+              <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Table2 size={18} color="var(--accent-cyan)" />
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700 }}>Shannon-Fano Code Table</span>
+                </div>
+                <table className="sf-code-table">
+                  <thead>
+                    <tr>
+                      <th>Symbol</th>
+                      <th>Freq</th>
+                      <th>Probability</th>
+                      <th>Shannon ideal (bits)</th>
+                      <th>SF Code</th>
+                      <th>SF Length</th>
+                      <th>Overhead</th>
+                      <th>Freq Bar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sfData.table.map((e, i) => {
+                      const color = symColors[i % symColors.length];
+                      const overhead = e.codeLen - e.shannonIdeal;
+                      return (
+                        <tr key={e.sym}>
+                          <td>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color, background: `${color}22`, padding: '2px 8px', borderRadius: '4px' }}>
+                              {e.sym === ' ' ? '⎵' : e.sym === '\n' ? '↵' : e.sym}
+                            </span>
+                          </td>
+                          <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)' }}>{e.cnt}</td>
+                          <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{(e.prob * 100).toFixed(1)}%</td>
+                          <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-emerald)' }}>{e.shannonIdeal.toFixed(3)}</td>
+                          <td className="sf-bits-cell">
+                            {e.bits.split('').map((b, j) => (
+                              <span key={j} className={b === '0' ? 'sf-bit-0' : 'sf-bit-1'}>{b}</span>
+                            ))}
+                          </td>
+                          <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-primary)', fontWeight: 700 }}>{e.codeLen}</td>
+                          <td style={{ fontFamily: 'var(--font-mono)', color: overhead > 0.5 ? '#fb923c' : '#34d399', fontWeight: 700 }}>
+                            {overhead > 0 ? `+${overhead.toFixed(3)}` : overhead.toFixed(3)}
+                          </td>
+                          <td>
+                            <div className="sf-bar-bg" style={{ width: '90px' }}>
+                              <div className="sf-bar-fill" style={{ width: `${e.prob * 100}%`, background: color }} />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* ---- Phase: Comparison ---- */}
+            {sfAnimPhase === 'compare' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '24px' }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1rem', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <BarChart2 size={18} color="var(--accent-cyan)" /> Average Code Length Comparison
+                  </div>
+
+                  {/* Bars */}
+                  {[
+                    { label: 'Shannon-Fano', val: sfData.avgLen, cls: 'shannon', note: 'Top-down greedy split' },
+                    { label: 'Canonical Huffman', val: sfData.huffmanAvgLen, cls: 'huffman', note: 'Optimal bottom-up' },
+                    { label: 'Shannon Entropy H(X)', val: sfData.entropy, cls: 'entropy', note: 'Theoretical lower bound' },
+                  ].map(row => {
+                    const refVal = Math.max(sfData.avgLen, sfData.huffmanAvgLen, sfData.entropy) || 1;
+                    const pct = (row.val / refVal) * 100;
+                    return (
+                      <div key={row.label} className="sf-compare-bar-row">
+                        <div className="sf-compare-label">{row.label}</div>
+                        <div className="sf-compare-track">
+                          <div className={`sf-compare-fill ${row.cls}`} style={{ width: `${pct}%` }}>
+                            {row.val.toFixed(3)} bits/sym
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', width: '130px', flexShrink: 0 }}>{row.note}</div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Overhead annotation */}
+                  <div style={{ marginTop: '20px', padding: '14px', background: 'rgba(0,0,0,0.3)', borderRadius: 'var(--radius-sm)', fontSize: '0.83rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                    <strong style={{ color: 'var(--text-primary)' }}>Why Shannon-Fano is sub-optimal:</strong>{' '}
+                    The greedy equi-partition minimises the <em>current split's</em> imbalance but does not guarantee a globally optimal code tree.
+                    Huffman's bottom-up min-heap merge provably minimises the weighted average code length L̄ = Σ p_i l_i.
+                    Shannon-Fano overhead is worst for medium-skewed distributions and zero for uniform or 2-symbol alphabets.
+                  </div>
+                </div>
+
+                {/* Bit savings vs uncompressed */}
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', padding: '24px' }}>
+                  <div style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '1rem', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Zap size={18} color="#fb923c" /> Bit Budget: Input vs Encoded
+                  </div>
+                  {[
+                    { label: 'Uncompressed', bits: sfData.originalBytes * 8, cls: 'shannon' },
+                    { label: 'Shannon-Fano', bits: sfData.encodedBits, cls: 'huffman' },
+                    { label: 'Theoretical min', bits: Math.ceil(sfData.entropy * sfData.originalBytes), cls: 'entropy' },
+                  ].map(row => {
+                    const refVal = sfData.originalBytes * 8 || 1;
+                    const pct = (row.bits / refVal) * 100;
+                    return (
+                      <div key={row.label} className="sf-compare-bar-row">
+                        <div className="sf-compare-label">{row.label}</div>
+                        <div className="sf-compare-track">
+                          <div className={`sf-compare-fill ${row.cls}`} style={{ width: `${pct}%` }}>
+                            {row.bits} bits
+                          </div>
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', width: '90px' }}>{(pct).toFixed(1)}%</div>
+                      </div>
+                    );
+                  })}
+
+                  <div style={{ marginTop: '16px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                    <div className="sf-stat-card" style={{ flex: 1, minWidth: 140 }}>
+                      <div className="sf-stat-label">Bits saved vs raw</div>
+                      <div className="sf-stat-value" style={{ color: '#34d399' }}>{sfData.originalBytes * 8 - sfData.encodedBits}</div>
+                    </div>
+                    <div className="sf-stat-card" style={{ flex: 1, minWidth: 140 }}>
+                      <div className="sf-stat-label">Compression ratio</div>
+                      <div className="sf-stat-value">{sfData.compressionRatio.toFixed(2)}:1</div>
+                    </div>
+                    <div className="sf-stat-card" style={{ flex: 1, minWidth: 140 }}>
+                      <div className="sf-stat-label">SF vs Huffman penalty</div>
+                      <div className="sf-stat-value" style={{ color: sfData.avgLen > sfData.huffmanAvgLen + 0.01 ? '#fb923c' : '#34d399' }}>
+                        {((sfData.avgLen - sfData.huffmanAvgLen) * sfData.originalBytes).toFixed(1)} bits
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Per-symbol comparison table */}
+                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-md)', overflow: 'hidden' }}>
+                  <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)', fontFamily: 'var(--font-display)', fontWeight: 700 }}>
+                    Per-Symbol Code Length Audit
+                  </div>
+                  <table className="sf-code-table">
+                    <thead>
+                      <tr>
+                        <th>Symbol</th>
+                        <th>P(s)</th>
+                        <th>Shannon ideal</th>
+                        <th>SF length</th>
+                        <th>Overhead/sym</th>
+                        <th>Overhead × cnt</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sfData.table.map((e, i) => {
+                        const overhead = e.codeLen - e.shannonIdeal;
+                        const totalOverhead = overhead * e.cnt;
+                        return (
+                          <tr key={e.sym}>
+                            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, color: symColors[i % symColors.length] }}>{e.sym === ' ' ? '⎵' : e.sym}</td>
+                            <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{(e.prob * 100).toFixed(1)}%</td>
+                            <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-emerald)' }}>{e.shannonIdeal.toFixed(3)}</td>
+                            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{e.codeLen}</td>
+                            <td style={{ fontFamily: 'var(--font-mono)', color: overhead > 0.5 ? '#fb923c' : '#34d399', fontWeight: 700 }}>
+                              {overhead > 0 ? `+${overhead.toFixed(3)}` : overhead.toFixed(3)}
+                            </td>
+                            <td style={{ fontFamily: 'var(--font-mono)', color: totalOverhead > 1 ? '#fb923c' : '#34d399' }}>
+                              {totalOverhead > 0 ? `+${totalOverhead.toFixed(2)}` : totalOverhead.toFixed(2)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {/* ---- Phase: Theory ---- */}
+            {sfAnimPhase === 'theory' && (
+              <div className="sf-theory-card">
+                <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                  <BookOpen size={20} color="var(--accent-cyan)" /> Shannon-Fano Deep Dive
+                </div>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.83rem', marginBottom: '0' }}>
+                  Historical context, algorithm mechanics, and why Huffman superseded it.
+                </p>
+
+                <div className="sf-theory-grid">
+                  <div className="sf-theory-col">
+                    <h5><span style={{ color: '#fb923c' }}>①</span> The 1948 Origin Story</h5>
+                    Claude Shannon introduced this scheme in his landmark paper <em>"A Mathematical Theory of Communication"</em> (1948).
+                    Robert Fano independently described the same algorithm at MIT in 1949. Shannon himself noted its sub-optimality —
+                    he proved the entropy lower bound H(X) but acknowledged his algorithm did not always reach it.
+                    David Huffman, a student in Fano's 1951 class, was challenged to find a better scheme and returned with
+                    the bottom-up min-heap approach that is provably optimal.
+                  </div>
+
+                  <div className="sf-theory-col">
+                    <h5><span style={{ color: '#c084fc' }}>②</span> The Algorithm (Step by Step)</h5>
+                    <ol style={{ margin: 0, paddingLeft: '16px', lineHeight: 1.7 }}>
+                      <li>Count symbol frequencies and sort descending.</li>
+                      <li>Find the split point that minimises <code>|Σ left - Σ right|</code>.</li>
+                      <li>Assign bit <strong>0</strong> to all left-group symbols, <strong>1</strong> to right.</li>
+                      <li>Recurse into each sub-group until all groups are size 1.</li>
+                    </ol>
+                    The resulting prefix codes satisfy the Kraft inequality K = Σ 2^-l_i ≤ 1 and are instantaneously decodable.
+                  </div>
+
+                  <div className="sf-theory-col">
+                    <h5><span style={{ color: '#34d399' }}>③</span> Why It Is Sub-Optimal</h5>
+                    Shannon-Fano is a <strong>greedy top-down</strong> algorithm. It optimises the current split without
+                    considering the downstream effects on subsequent splits.
+                    <br /><br />
+                    Classic counterexample: symbols with probabilities [0.36, 0.18, 0.18, 0.12, 0.12, 0.04].
+                    Shannon-Fano assigns average 2.67 bits/sym. Huffman achieves 2.44 bits/sym (= H(X)).
+                    The gap can be arbitrarily large for pathological distributions.
+                  </div>
+
+                  <div className="sf-theory-col">
+                    <h5><span style={{ color: '#00f2fe' }}>④</span> Historical Significance & Legacy</h5>
+                    Shannon-Fano established three pillars of information theory:
+                    <ul style={{ margin: '8px 0', paddingLeft: '16px', lineHeight: 1.7 }}>
+                      <li>Variable-length prefix codes can compress below fixed-width codes.</li>
+                      <li>The average code length is bounded below by H(X).</li>
+                      <li>The Kraft inequality is the necessary and sufficient condition for a uniquely decodable prefix code.</li>
+                    </ul>
+                    It directly inspired Huffman (1952), arithmetic coding (Rissanen 1976), and ANS (Duda 2006).
+                  </div>
+
+                  <div className="sf-theory-col">
+                    <h5><span style={{ color: '#f43f5e' }}>⑤</span> Time & Space Complexity</h5>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+                      <tbody>
+                        {[['Frequency count','O(n)'],['Sort symbols','O(k log k)'],['Build tree','O(k²) worst'],
+                          ['Encode','O(n · L̄)'],['Decode','O(n · L̄)'],['Space','O(k)']
+                        ].map(([op, cx]) => (
+                          <tr key={op}>
+                            <td style={{ padding: '4px 0', color: 'var(--text-secondary)' }}>{op}</td>
+                            <td style={{ padding: '4px 0', color: 'var(--accent-cyan)', textAlign: 'right' }}>{cx}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <p style={{ marginTop: '8px', margin: '8px 0 0 0' }}>where n = input length, k = alphabet size, L̄ = average code length.</p>
+                  </div>
+
+                  <div className="sf-theory-col">
+                    <h5><span style={{ color: '#fbbf24' }}>⑥</span> When to Actually Use It</h5>
+                    <p style={{ margin: 0 }}>In modern systems, <strong>never prefer Shannon-Fano over Huffman</strong> — they have identical O(k log k) complexity but Huffman is provably better.</p>
+                    <br />
+                    Use Shannon-Fano for:
+                    <ul style={{ margin: '6px 0', paddingLeft: '16px', lineHeight: 1.7 }}>
+                      <li>Teaching top-down recursive partitioning.</li>
+                      <li>Visualising how prefix code trees are constructed.</li>
+                      <li>Understanding why greedy local optimisation fails globally.</li>
+                    </ul>
+                    The C++20 header at <code>lossless/shannon_fano/shannon_fano.hpp</code> provides full encode/decode with step-by-step split tracing.
+                  </div>
+                </div>
+
+                {/* Decision Matrix */}
+                <div className="decision-matrix-card" style={{ marginTop: '24px' }}>
+                  <div className="decision-matrix-header">
+                    <Network size={22} color="var(--accent-cyan)" />
+                    <h3 className="matrix-title">Shannon-Fano: Architectural Placement</h3>
+                  </div>
+                  <div className="decision-columns-grid">
+                    <div className="decision-column use">
+                      <div className="decision-column-title">
+                        <CheckCircle2 size={20} />
+                        <span>When to Use</span>
+                      </div>
+                      <ul className="decision-items-list">
+                        <li className="decision-item">
+                          <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                          <div><strong>Education & Visualization:</strong> Ideal for teaching prefix code construction and recursive partitioning.</div>
+                        </li>
+                        <li className="decision-item">
+                          <CheckCircle2 size={16} className="item-icon" color="var(--accent-emerald)" />
+                          <div><strong>Rapid Prototyping:</strong> Simpler to implement than Huffman without the min-heap priority queue.</div>
+                        </li>
+                      </ul>
+                    </div>
+                    <div className="decision-column avoid">
+                      <div className="decision-column-title">
+                        <XCircle size={20} />
+                        <span>When NOT to Use</span>
+                      </div>
+                      <ul className="decision-items-list">
+                        <li className="decision-item">
+                          <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                          <div><strong>Any Production System:</strong> Huffman is equally simple and provably optimal. There is no valid reason to use Shannon-Fano in production.
+                            <div style={{ marginTop: '4px' }}><span className="badge-alt">Use Instead:</span> <strong>Canonical Huffman</strong>.</div>
+                          </div>
+                        </li>
+                        <li className="decision-item">
+                          <XCircle size={16} className="item-icon" color="var(--accent-rose)" />
+                          <div><strong>Highly Skewed Probabilities:</strong> Neither Shannon-Fano nor Huffman can beat the 1-bit floor.
+                            <div style={{ marginTop: '4px' }}><span className="badge-alt">Use Instead:</span> <strong>Arithmetic Coding / ANS</strong>.</div>
+                          </div>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

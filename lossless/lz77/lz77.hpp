@@ -255,4 +255,243 @@ inline std::vector<uint8_t> decode(const uint8_t* src, size_t size) {
 }
 
 } // namespace lz77
+
+namespace lzss {
+
+/**
+ * @brief Represents an LZSS token (Storer & Szymanski, 1982).
+ *
+ * Major evolution over classic LZ77:
+ * - Eliminates the mandatory trailing literal in every token.
+ * - Employs a 1-bit prefix flag:
+ *     - Flag 0: Single raw literal byte (1 flag bit + 8 data bits = 9 bits total).
+ *     - Flag 1: Match pair (distance, length) (1 flag bit + 12 distance bits + 8 length bits = 21 bits total).
+ * - Enforces MIN_MATCH >= 3 threshold to guarantee compression profitability.
+ */
+struct Token {
+    bool     is_match{false};  // false = literal byte, true = match pair
+    uint8_t  literal{0};       // Valid if !is_match
+    uint16_t distance{0};      // Valid if is_match (1..search_window)
+    uint16_t length{0};        // Valid if is_match (min_match..lookahead_window)
+
+    bool operator==(const Token& other) const {
+        if (is_match != other.is_match) return false;
+        if (is_match) {
+            return distance == other.distance && length == other.length;
+        } else {
+            return literal == other.literal;
+        }
+    }
+};
+
+constexpr uint16_t DEFAULT_SEARCH_WINDOW    = 4096; // 12 bits
+constexpr uint16_t DEFAULT_LOOKAHEAD_WINDOW = 255;  // 8 bits
+constexpr uint16_t MIN_MATCH                = 3;    // Minimum length for a profitable match
+constexpr uint32_t LZSS_MAGIC               = 0x4C5A5353; // "LZSS"
+
+/**
+ * @brief Encodes raw bytes into a vector of LZSS tokens (Literals and Matches).
+ */
+inline std::vector<Token> encode_tokens(const uint8_t* src, size_t size,
+                                        uint16_t search_window_size = DEFAULT_SEARCH_WINDOW,
+                                        uint16_t lookahead_window_size = DEFAULT_LOOKAHEAD_WINDOW,
+                                        uint16_t min_match = MIN_MATCH) {
+    std::vector<Token> tokens;
+    if (!src || size == 0) return tokens;
+
+    size_t cursor = 0;
+
+    while (cursor < size) {
+        size_t search_start = (cursor > search_window_size) ? (cursor - search_window_size) : 0;
+        size_t max_lookahead = std::min<size_t>(lookahead_window_size, size - cursor);
+
+        uint16_t best_distance = 0;
+        uint16_t best_length = 0;
+
+        // Longest match search in search buffer [search_start .. cursor - 1]
+        for (size_t pos = search_start; pos < cursor; ++pos) {
+            size_t len = 0;
+            // Support overlapping/repeating runs: compare src[pos + len] with src[cursor + len]
+            while (len < max_lookahead && src[pos + len] == src[cursor + len]) {
+                len++;
+            }
+            if (len > best_length) {
+                best_length = static_cast<uint16_t>(len);
+                best_distance = static_cast<uint16_t>(cursor - pos);
+            }
+        }
+
+        // LZSS profitability threshold: only emit a match if length >= min_match
+        if (best_length >= min_match) {
+            Token tok;
+            tok.is_match = true;
+            tok.distance = best_distance;
+            tok.length = best_length;
+            tok.literal = 0;
+            tokens.push_back(tok);
+            cursor += best_length; // Advance strictly by matched length
+        } else {
+            Token tok;
+            tok.is_match = false;
+            tok.literal = src[cursor];
+            tok.distance = 0;
+            tok.length = 0;
+            tokens.push_back(tok);
+            cursor += 1; // Advance by 1 literal
+        }
+    }
+
+    return tokens;
+}
+
+/**
+ * @brief Reconstructs original data from LZSS tokens.
+ */
+inline std::vector<uint8_t> decode_tokens(const std::vector<Token>& tokens) {
+    std::vector<uint8_t> decompressed;
+
+    for (const auto& tok : tokens) {
+        if (!tok.is_match) {
+            decompressed.push_back(tok.literal);
+        } else {
+            if (tok.distance == 0 || tok.distance > decompressed.size()) {
+                throw std::runtime_error("Corrupted LZSS token: Invalid backward distance " +
+                                         std::to_string(tok.distance));
+            }
+            size_t start_copy_pos = decompressed.size() - tok.distance;
+            for (size_t i = 0; i < tok.length; ++i) {
+                // Byte-by-byte copy supports self-referential / RLE runs
+                decompressed.push_back(decompressed[start_copy_pos + i]);
+            }
+        }
+    }
+
+    return decompressed;
+}
+
+/**
+ * @brief Serializes LZSS tokens into a compact bit-packed bitstream with header.
+ *
+ * Layout:
+ * [Header - 12 Bytes]
+ *   - 0..3:  Magic (0x4C5A5353 -> "LZSS") [4 Bytes]
+ *   - 4..7:  Original uncompressed size [4 Bytes]
+ *   - 8..11: Token count [4 Bytes]
+ * [Bit Stream]
+ *   - Literal: Flag '0' (1b) + Literal Byte (8b) = 9 bits
+ *   - Match:   Flag '1' (1b) + Distance (12b) + Length (8b) = 21 bits
+ */
+inline std::vector<uint8_t> encode(const uint8_t* src, size_t size,
+                                   uint16_t search_window_size = DEFAULT_SEARCH_WINDOW,
+                                   uint16_t lookahead_window_size = DEFAULT_LOOKAHEAD_WINDOW,
+                                   uint16_t min_match = MIN_MATCH) {
+    if (!src || size == 0) return {};
+
+    auto tokens = encode_tokens(src, size, search_window_size, lookahead_window_size, min_match);
+
+    std::vector<uint8_t> output;
+    output.reserve(12 + (tokens.size() * 21 + 7) / 8);
+
+    // 1. Magic
+    output.push_back(static_cast<uint8_t>((LZSS_MAGIC >> 24) & 0xFF));
+    output.push_back(static_cast<uint8_t>((LZSS_MAGIC >> 16) & 0xFF));
+    output.push_back(static_cast<uint8_t>((LZSS_MAGIC >> 8) & 0xFF));
+    output.push_back(static_cast<uint8_t>(LZSS_MAGIC & 0xFF));
+
+    // 2. Original Size
+    uint32_t orig_sz = static_cast<uint32_t>(size);
+    output.push_back(static_cast<uint8_t>((orig_sz >> 24) & 0xFF));
+    output.push_back(static_cast<uint8_t>((orig_sz >> 16) & 0xFF));
+    output.push_back(static_cast<uint8_t>((orig_sz >> 8) & 0xFF));
+    output.push_back(static_cast<uint8_t>(orig_sz & 0xFF));
+
+    // 3. Token Count
+    uint32_t tok_cnt = static_cast<uint32_t>(tokens.size());
+    output.push_back(static_cast<uint8_t>((tok_cnt >> 24) & 0xFF));
+    output.push_back(static_cast<uint8_t>((tok_cnt >> 16) & 0xFF));
+    output.push_back(static_cast<uint8_t>((tok_cnt >> 8) & 0xFF));
+    output.push_back(static_cast<uint8_t>(tok_cnt & 0xFF));
+
+    BitWriter writer;
+    for (const auto& tok : tokens) {
+        if (!tok.is_match) {
+            writer.write_bits(0, 1);           // Flag 0: Literal
+            writer.write_bits(tok.literal, 8); // 8-bit literal byte
+        } else {
+            writer.write_bits(1, 1);           // Flag 1: Match pair
+            writer.write_bits(tok.distance, 12); // 12-bit distance
+            writer.write_bits(tok.length, 8);    // 8-bit length
+        }
+    }
+    writer.flush();
+
+    const auto& packed_bytes = writer.data();
+    output.insert(output.end(), packed_bytes.begin(), packed_bytes.end());
+
+    return output;
+}
+
+/**
+ * @brief Decompresses an LZSS binary bitstream back into original data.
+ */
+inline std::vector<uint8_t> decode(const uint8_t* src, size_t size) {
+    if (!src || size < 12) {
+        throw std::invalid_argument("LZSS bitstream too short to contain valid header");
+    }
+
+    uint32_t magic = (static_cast<uint32_t>(src[0]) << 24) |
+                     (static_cast<uint32_t>(src[1]) << 16) |
+                     (static_cast<uint32_t>(src[2]) << 8)  |
+                     static_cast<uint32_t>(src[3]);
+    if (magic != LZSS_MAGIC) {
+        throw std::runtime_error("Invalid LZSS magic header: Expected 'LZSS'");
+    }
+
+    uint32_t orig_size = (static_cast<uint32_t>(src[4]) << 24) |
+                         (static_cast<uint32_t>(src[5]) << 16) |
+                         (static_cast<uint32_t>(src[6]) << 8)  |
+                         static_cast<uint32_t>(src[7]);
+
+    uint32_t token_count = (static_cast<uint32_t>(src[8]) << 24) |
+                           (static_cast<uint32_t>(src[9]) << 16) |
+                           (static_cast<uint32_t>(src[10]) << 8) |
+                           static_cast<uint32_t>(src[11]);
+
+    if (token_count == 0) return {};
+
+    BitReader reader(src + 12, size - 12);
+    std::vector<Token> tokens;
+    tokens.reserve(token_count);
+
+    for (uint32_t i = 0; i < token_count; ++i) {
+        uint32_t flag = reader.read_bits(1);
+        if (flag == 0) {
+            uint8_t lit = static_cast<uint8_t>(reader.read_bits(8));
+            Token t;
+            t.is_match = false;
+            t.literal = lit;
+            tokens.push_back(t);
+        } else {
+            uint16_t dist = static_cast<uint16_t>(reader.read_bits(12));
+            uint16_t len  = static_cast<uint16_t>(reader.read_bits(8));
+            Token t;
+            t.is_match = true;
+            t.distance = dist;
+            t.length = len;
+            tokens.push_back(t);
+        }
+    }
+
+    auto decompressed = decode_tokens(tokens);
+
+    if (decompressed.size() != orig_size) {
+        throw std::runtime_error("LZSS decompression size mismatch: Expected " +
+                                 std::to_string(orig_size) + " but got " +
+                                 std::to_string(decompressed.size()));
+    }
+
+    return decompressed;
+}
+
+} // namespace lzss
 } // namespace compression
